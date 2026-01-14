@@ -662,9 +662,9 @@ impl<'de> Deserialize<'de> for TaggedUrn {
 }
 
 /// URN matching and selection utilities
-pub struct CapMatcher;
+pub struct UrnMatcher;
 
-impl CapMatcher {
+impl UrnMatcher {
     /// Find the most specific URN that can handle a request
     /// All URNs must have the same prefix as the request
     pub fn find_best_match<'a>(urns: &'a [TaggedUrn], request: &TaggedUrn) -> Result<Option<&'a TaggedUrn>, TaggedUrnError> {
@@ -1155,7 +1155,7 @@ mod tests {
         ];
 
         let request = TaggedUrn::from_string("cap:op=generate").unwrap();
-        let best = CapMatcher::find_best_match(&urns, &request).unwrap().unwrap();
+        let best = UrnMatcher::find_best_match(&urns, &request).unwrap().unwrap();
 
         // Most specific URN that can handle the request
         // Alphabetical order: ext < op
