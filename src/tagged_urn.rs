@@ -1,24 +1,31 @@
-//! Flat Tag-Based Cap Identifier System
+//! Flat Tag-Based URN Identifier System
 //!
-//! This module provides a flat, tag-based tagged URN system that replaces
-//! hierarchical naming with key-value tags to handle cross-cutting concerns and
-//! multi-dimensional cap classification.
+//! This module provides a flat, tag-based tagged URN system with configurable
+//! prefixes, wildcard support, and specificity comparison.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
-/// A tagged URN using flat, ordered tags
+/// A tagged URN using flat, ordered tags with a configurable prefix
 ///
 /// Examples:
 /// - `cap:op=generate;ext=pdf;output=binary;target=thumbnail`
-/// - `cap:op=extract;target=metadata`
-/// - `cap:key="Value With Spaces"`
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// - `myapp:key="Value With Spaces"`
+/// - `custom:a=1;b=2`
+#[derive(Debug, Clone, Eq, Hash)]
 pub struct TaggedUrn {
-    /// The tags that define this cap, stored in sorted order for canonical representation
+    /// The prefix for this URN (e.g., "cap", "myapp", "custom")
+    pub prefix: String,
+    /// The tags that define this URN, stored in sorted order for canonical representation
     pub tags: BTreeMap<String, String>,
+}
+
+impl PartialEq for TaggedUrn {
+    fn eq(&self, other: &Self) -> bool {
+        self.prefix == other.prefix && self.tags == other.tags
+    }
 }
 
 /// Parser states for the state machine
@@ -34,33 +41,36 @@ enum ParseState {
 }
 
 impl TaggedUrn {
-    /// Create a new tagged URN from tags
+    /// Create a new tagged URN from tags with a specified prefix
     /// Keys are normalized to lowercase; values are preserved as-is
-    pub fn new(tags: BTreeMap<String, String>) -> Self {
+    pub fn new(prefix: String, tags: BTreeMap<String, String>) -> Self {
         let normalized_tags = tags
             .into_iter()
             .map(|(k, v)| (k.to_lowercase(), v))
             .collect();
         Self {
+            prefix: prefix.to_lowercase(),
             tags: normalized_tags,
         }
     }
 
-    /// Create an empty tagged URN
-    pub fn empty() -> Self {
+    /// Create an empty tagged URN with the specified prefix
+    pub fn empty(prefix: String) -> Self {
         Self {
+            prefix: prefix.to_lowercase(),
             tags: BTreeMap::new(),
         }
     }
 
     /// Create a tagged URN from a string representation
     ///
-    /// Format: `cap:key1=value1;key2=value2;...` or `cap:key1="value with spaces";key2=simple`
-    /// The "cap:" prefix is mandatory
+    /// Format: `prefix:key1=value1;key2=value2;...` or `prefix:key1="value with spaces";key2=simple`
+    /// The prefix is required and ends at the first colon
     /// Trailing semicolons are optional and ignored
     /// Tags are automatically sorted alphabetically for canonical form
     ///
     /// Case handling:
+    /// - Prefix: Normalized to lowercase
     /// - Keys: Always normalized to lowercase
     /// - Unquoted values: Normalized to lowercase
     /// - Quoted values: Case preserved exactly as specified
@@ -69,17 +79,20 @@ impl TaggedUrn {
             return Err(TaggedUrnError::Empty);
         }
 
-        // Check for "cap:" prefix (case-insensitive)
-        if s.len() < 4 || !s[..4].eq_ignore_ascii_case("cap:") {
-            return Err(TaggedUrnError::MissingCapPrefix);
+        // Find the prefix (everything before the first colon)
+        let colon_pos = s.find(':').ok_or(TaggedUrnError::MissingPrefix)?;
+
+        if colon_pos == 0 {
+            return Err(TaggedUrnError::EmptyPrefix);
         }
 
-        let tags_part = &s[4..];
+        let prefix = s[..colon_pos].to_lowercase();
+        let tags_part = &s[colon_pos + 1..];
         let mut tags = BTreeMap::new();
 
-        // Handle empty tagged URN (cap: with no tags)
+        // Handle empty tagged URN (prefix: with no tags)
         if tags_part.is_empty() || tags_part == ";" {
-            return Ok(Self { tags });
+            return Ok(Self { prefix, tags });
         }
 
         let mut state = ParseState::ExpectingKey;
@@ -220,7 +233,7 @@ impl TaggedUrn {
             }
         }
 
-        Ok(Self { tags })
+        Ok(Self { prefix, tags })
     }
 
     /// Finish a tag by validating and inserting it
@@ -297,7 +310,7 @@ impl TaggedUrn {
 
     /// Get the canonical string representation of this tagged URN
     ///
-    /// Always includes "cap:" prefix
+    /// Uses the stored prefix
     /// Tags are already sorted alphabetically due to BTreeMap
     /// No trailing semicolon in canonical form
     /// Values are quoted only when necessary (smart quoting)
@@ -314,7 +327,12 @@ impl TaggedUrn {
             })
             .collect::<Vec<_>>()
             .join(";");
-        format!("cap:{}", tags_str)
+        format!("{}:{}", self.prefix, tags_str)
+    }
+
+    /// Get the prefix of this tagged URN
+    pub fn get_prefix(&self) -> &str {
+        &self.prefix
     }
 
     /// Get a specific tag value
@@ -323,7 +341,7 @@ impl TaggedUrn {
         self.tags.get(&key.to_lowercase())
     }
 
-    /// Check if this cap has a specific tag with a specific value
+    /// Check if this URN has a specific tag with a specific value
     /// Key is normalized to lowercase; value comparison is case-sensitive
     pub fn has_tag(&self, key: &str, value: &str) -> bool {
         self.tags
@@ -345,79 +363,107 @@ impl TaggedUrn {
         self
     }
 
-    /// Check if this cap matches another based on tag compatibility
+    /// Check if this URN matches another based on tag compatibility
     ///
-    /// A cap matches a request if:
-    /// - For each tag in the request: cap has same value, wildcard (*), or missing tag
-    /// - For each tag in the cap: if request is missing that tag, that's fine (cap is more specific)
+    /// IMPORTANT: Both URNs must have the same prefix. Comparing URNs with
+    /// different prefixes is a programming error and will return an error.
+    ///
+    /// A URN matches a request if:
+    /// - Both have the same prefix
+    /// - For each tag in the request: URN has same value, wildcard (*), or missing tag
+    /// - For each tag in the URN: if request is missing that tag, that's fine (URN is more specific)
     /// Missing tags are treated as wildcards (less specific, can handle any value).
-    pub fn matches(&self, request: &TaggedUrn) -> bool {
+    pub fn matches(&self, request: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+        // First check prefix - must match exactly
+        if self.prefix != request.prefix {
+            return Err(TaggedUrnError::PrefixMismatch {
+                expected: self.prefix.clone(),
+                actual: request.prefix.clone(),
+            });
+        }
+
         // Check all tags that the request specifies
         for (request_key, request_value) in &request.tags {
             match self.tags.get(request_key) {
-                Some(cap_value) => {
-                    if cap_value == "*" {
-                        // Cap has wildcard - can handle any value
+                Some(urn_value) => {
+                    if urn_value == "*" {
+                        // URN has wildcard - can handle any value
                         continue;
                     }
                     if request_value == "*" {
-                        // Request accepts any value - cap's specific value matches
+                        // Request accepts any value - URN's specific value matches
                         continue;
                     }
-                    if cap_value != request_value {
-                        // Cap has specific value that doesn't match request's specific value
-                        return false;
+                    if urn_value != request_value {
+                        // URN has specific value that doesn't match request's specific value
+                        return Ok(false);
                     }
                 }
                 None => {
-                    // Missing tag in cap is treated as wildcard - can handle any value
+                    // Missing tag in URN is treated as wildcard - can handle any value
                     continue;
                 }
             }
         }
 
-        // If cap has additional specific tags that request doesn't specify, that's fine
-        // The cap is just more specific than needed
-        true
+        // If URN has additional specific tags that request doesn't specify, that's fine
+        // The URN is just more specific than needed
+        Ok(true)
     }
 
     pub fn matches_str(&self, request_str: &str) -> Result<bool, TaggedUrnError> {
         let request = TaggedUrn::from_string(request_str)?;
-        Ok(self.matches(&request))
+        self.matches(&request)
     }
 
-    /// Check if this cap can handle a request
+    /// Check if this URN can handle a request
     ///
     /// This is used when a request comes in with a tagged URN
-    /// and we need to see if this cap can fulfill it
-    pub fn can_handle(&self, request: &TaggedUrn) -> bool {
+    /// and we need to see if this URN can fulfill it
+    pub fn can_handle(&self, request: &TaggedUrn) -> Result<bool, TaggedUrnError> {
         self.matches(request)
     }
 
-    /// Calculate specificity score for cap matching
+    /// Calculate specificity score for URN matching
     ///
-    /// More specific caps have higher scores and are preferred
+    /// More specific URNs have higher scores and are preferred
     pub fn specificity(&self) -> usize {
         // Count non-wildcard tags
         self.tags.values().filter(|v| v.as_str() != "*").count()
     }
 
-    /// Check if this cap is more specific than another
-    pub fn is_more_specific_than(&self, other: &TaggedUrn) -> bool {
-        // First check if they're compatible
-        if !self.is_compatible_with(other) {
-            return false;
+    /// Check if this URN is more specific than another
+    pub fn is_more_specific_than(&self, other: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+        // First check prefix
+        if self.prefix != other.prefix {
+            return Err(TaggedUrnError::PrefixMismatch {
+                expected: self.prefix.clone(),
+                actual: other.prefix.clone(),
+            });
         }
 
-        self.specificity() > other.specificity()
+        // Then check if they're compatible
+        if !self.is_compatible_with(other)? {
+            return Ok(false);
+        }
+
+        Ok(self.specificity() > other.specificity())
     }
 
-    /// Check if this cap is compatible with another
+    /// Check if this URN is compatible with another
     ///
-    /// Two caps are compatible if they can potentially match
+    /// Two URNs are compatible if they have the same prefix and can potentially match
     /// the same types of requests (considering wildcards and missing tags as wildcards)
-    pub fn is_compatible_with(&self, other: &TaggedUrn) -> bool {
-        // Get all unique tag keys from both caps
+    pub fn is_compatible_with(&self, other: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+        // First check prefix
+        if self.prefix != other.prefix {
+            return Err(TaggedUrnError::PrefixMismatch {
+                expected: self.prefix.clone(),
+                actual: other.prefix.clone(),
+            });
+        }
+
+        // Get all unique tag keys from both URNs
         let mut all_keys = self
             .tags
             .keys()
@@ -430,7 +476,7 @@ impl TaggedUrn {
                 (Some(v1), Some(v2)) => {
                     // Both have the tag - they must match or one must be wildcard
                     if v1 != "*" && v2 != "*" && v1 != v2 {
-                        return false;
+                        return Ok(false);
                     }
                 }
                 (Some(_), None) | (None, Some(_)) => {
@@ -444,7 +490,7 @@ impl TaggedUrn {
             }
         }
 
-        true
+        Ok(true)
     }
 
     /// Create a wildcard version by replacing specific values with wildcards
@@ -455,7 +501,7 @@ impl TaggedUrn {
         self
     }
 
-    /// Create a subset cap with only specified tags
+    /// Create a subset URN with only specified tags
     pub fn subset(&self, keys: &[&str]) -> Self {
         let mut tags = BTreeMap::new();
         for &key in keys {
@@ -463,16 +509,30 @@ impl TaggedUrn {
                 tags.insert(key.to_string(), value.clone());
             }
         }
-        Self { tags }
+        Self {
+            prefix: self.prefix.clone(),
+            tags,
+        }
     }
 
-    /// Merge with another cap (other takes precedence for conflicts)
-    pub fn merge(&self, other: &TaggedUrn) -> Self {
+    /// Merge with another URN (other takes precedence for conflicts)
+    /// Both must have the same prefix
+    pub fn merge(&self, other: &TaggedUrn) -> Result<Self, TaggedUrnError> {
+        if self.prefix != other.prefix {
+            return Err(TaggedUrnError::PrefixMismatch {
+                expected: self.prefix.clone(),
+                actual: other.prefix.clone(),
+            });
+        }
+
         let mut tags = self.tags.clone();
         for (key, value) in &other.tags {
             tags.insert(key.clone(), value.clone());
         }
-        Self { tags }
+        Ok(Self {
+            prefix: self.prefix.clone(),
+            tags,
+        })
     }
 
     pub fn canonical(tagged_urn: &str) -> Result<String, TaggedUrnError> {
@@ -490,13 +550,15 @@ impl TaggedUrn {
     }
 }
 
-/// Errors that can occur when parsing tagged URNs
+/// Errors that can occur when parsing or operating on tagged URNs
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TaggedUrnError {
     /// Error code 1: Empty or malformed URN
     Empty,
-    /// Error code 5: URN does not start with `cap:`
-    MissingCapPrefix,
+    /// Error code 5: URN does not have a prefix (no colon found)
+    MissingPrefix,
+    /// Error code 10: Empty prefix (colon at start)
+    EmptyPrefix,
     /// Error code 4: Tag not in key=value format
     InvalidTagFormat(String),
     /// Error code 2: Empty key or value component
@@ -511,16 +573,21 @@ pub enum TaggedUrnError {
     UnterminatedQuote(usize),
     /// Error code 9: Invalid escape in quoted value (only \" and \\ allowed)
     InvalidEscapeSequence(usize),
+    /// Error code 11: Prefix mismatch when comparing URNs from different domains
+    PrefixMismatch { expected: String, actual: String },
 }
 
 impl fmt::Display for TaggedUrnError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TaggedUrnError::Empty => {
-                write!(f, "Cap identifier cannot be empty")
+                write!(f, "Tagged URN cannot be empty")
             }
-            TaggedUrnError::MissingCapPrefix => {
-                write!(f, "Cap identifier must start with 'cap:'")
+            TaggedUrnError::MissingPrefix => {
+                write!(f, "Tagged URN must have a prefix followed by ':'")
+            }
+            TaggedUrnError::EmptyPrefix => {
+                write!(f, "Tagged URN prefix cannot be empty")
             }
             TaggedUrnError::InvalidTagFormat(tag) => {
                 write!(f, "Invalid tag format (must be key=value): {}", tag)
@@ -545,6 +612,13 @@ impl fmt::Display for TaggedUrnError {
                     f,
                     "Invalid escape sequence at position {} (only \\\" and \\\\ allowed)",
                     pos
+                )
+            }
+            TaggedUrnError::PrefixMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "Cannot compare URNs with different prefixes: '{}' vs '{}'",
+                    expected, actual
                 )
             }
         }
@@ -587,42 +661,70 @@ impl<'de> Deserialize<'de> for TaggedUrn {
     }
 }
 
-/// Cap matching and selection utilities
+/// URN matching and selection utilities
 pub struct CapMatcher;
 
 impl CapMatcher {
-    /// Find the most specific cap that can handle a request
-    pub fn find_best_match<'a>(caps: &'a [TaggedUrn], request: &TaggedUrn) -> Option<&'a TaggedUrn> {
-        caps.iter()
-            .filter(|cap| cap.can_handle(request))
-            .max_by_key(|cap| cap.specificity())
+    /// Find the most specific URN that can handle a request
+    /// All URNs must have the same prefix as the request
+    pub fn find_best_match<'a>(urns: &'a [TaggedUrn], request: &TaggedUrn) -> Result<Option<&'a TaggedUrn>, TaggedUrnError> {
+        let mut best: Option<&TaggedUrn> = None;
+        let mut best_specificity = 0;
+
+        for urn in urns {
+            if urn.can_handle(request)? {
+                let specificity = urn.specificity();
+                if best.is_none() || specificity > best_specificity {
+                    best = Some(urn);
+                    best_specificity = specificity;
+                }
+            }
+        }
+
+        Ok(best)
     }
 
-    /// Find all caps that can handle a request, sorted by specificity
-    pub fn find_all_matches<'a>(caps: &'a [TaggedUrn], request: &TaggedUrn) -> Vec<&'a TaggedUrn> {
-        let mut matches: Vec<&TaggedUrn> = caps.iter().filter(|cap| cap.can_handle(request)).collect();
+    /// Find all URNs that can handle a request, sorted by specificity
+    /// All URNs must have the same prefix as the request
+    pub fn find_all_matches<'a>(urns: &'a [TaggedUrn], request: &TaggedUrn) -> Result<Vec<&'a TaggedUrn>, TaggedUrnError> {
+        let mut matches: Vec<&TaggedUrn> = Vec::new();
+
+        for urn in urns {
+            if urn.can_handle(request)? {
+                matches.push(urn);
+            }
+        }
 
         // Sort by specificity (most specific first)
-        matches.sort_by_key(|cap| std::cmp::Reverse(cap.specificity()));
-        matches
+        matches.sort_by_key(|urn| std::cmp::Reverse(urn.specificity()));
+        Ok(matches)
     }
 
-    /// Check if two cap sets are compatible
-    pub fn are_compatible(caps1: &[TaggedUrn], caps2: &[TaggedUrn]) -> bool {
-        caps1
-            .iter()
-            .any(|c1| caps2.iter().any(|c2| c1.is_compatible_with(c2)))
+    /// Check if two URN sets are compatible
+    /// All URNs in both sets must have the same prefix
+    pub fn are_compatible(urns1: &[TaggedUrn], urns2: &[TaggedUrn]) -> Result<bool, TaggedUrnError> {
+        for u1 in urns1 {
+            for u2 in urns2 {
+                if u1.is_compatible_with(u2)? {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 }
 
 /// Builder for creating tagged URNs fluently
 pub struct TaggedUrnBuilder {
+    prefix: String,
     tags: BTreeMap<String, String>,
 }
 
 impl TaggedUrnBuilder {
-    pub fn new() -> Self {
+    /// Create a new builder with a specified prefix (required)
+    pub fn new(prefix: &str) -> Self {
         Self {
+            prefix: prefix.to_lowercase(),
             tags: BTreeMap::new(),
         }
     }
@@ -637,13 +739,18 @@ impl TaggedUrnBuilder {
         if self.tags.is_empty() {
             return Err(TaggedUrnError::Empty);
         }
-        Ok(TaggedUrn { tags: self.tags })
+        Ok(TaggedUrn {
+            prefix: self.prefix,
+            tags: self.tags,
+        })
     }
-}
 
-impl Default for TaggedUrnBuilder {
-    fn default() -> Self {
-        Self::new()
+    /// Build allowing empty tags (creates an empty URN that matches everything)
+    pub fn build_allow_empty(self) -> TaggedUrn {
+        TaggedUrn {
+            prefix: self.prefix,
+            tags: self.tags,
+        }
     }
 }
 
@@ -653,41 +760,89 @@ mod tests {
 
     #[test]
     fn test_tagged_urn_creation() {
-        let cap = TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
-        assert_eq!(cap.get_tag("op"), Some(&"generate".to_string()));
-        assert_eq!(cap.get_tag("target"), Some(&"thumbnail".to_string()));
-        assert_eq!(cap.get_tag("ext"), Some(&"pdf".to_string()));
+        let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
+        assert_eq!(urn.get_prefix(), "cap");
+        assert_eq!(urn.get_tag("op"), Some(&"generate".to_string()));
+        assert_eq!(urn.get_tag("target"), Some(&"thumbnail".to_string()));
+        assert_eq!(urn.get_tag("ext"), Some(&"pdf".to_string()));
+    }
+
+    #[test]
+    fn test_custom_prefix() {
+        let urn = TaggedUrn::from_string("myapp:op=generate;ext=pdf").unwrap();
+        assert_eq!(urn.get_prefix(), "myapp");
+        assert_eq!(urn.get_tag("op"), Some(&"generate".to_string()));
+        assert_eq!(urn.to_string(), "myapp:ext=pdf;op=generate");
+    }
+
+    #[test]
+    fn test_prefix_case_insensitive() {
+        let urn1 = TaggedUrn::from_string("CAP:op=test").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:op=test").unwrap();
+        let urn3 = TaggedUrn::from_string("Cap:op=test").unwrap();
+
+        assert_eq!(urn1.get_prefix(), "cap");
+        assert_eq!(urn2.get_prefix(), "cap");
+        assert_eq!(urn3.get_prefix(), "cap");
+        assert_eq!(urn1, urn2);
+        assert_eq!(urn2, urn3);
+    }
+
+    #[test]
+    fn test_prefix_mismatch_error() {
+        let urn1 = TaggedUrn::from_string("cap:op=test").unwrap();
+        let urn2 = TaggedUrn::from_string("myapp:op=test").unwrap();
+
+        let result = urn1.matches(&urn2);
+        assert!(result.is_err());
+        if let Err(TaggedUrnError::PrefixMismatch { expected, actual }) = result {
+            assert_eq!(expected, "cap");
+            assert_eq!(actual, "myapp");
+        } else {
+            panic!("Expected PrefixMismatch error");
+        }
+    }
+
+    #[test]
+    fn test_builder_with_prefix() {
+        let urn = TaggedUrnBuilder::new("custom")
+            .tag("key", "value")
+            .build()
+            .unwrap();
+
+        assert_eq!(urn.get_prefix(), "custom");
+        assert_eq!(urn.to_string(), "custom:key=value");
     }
 
     #[test]
     fn test_unquoted_values_lowercased() {
         // Unquoted values are normalized to lowercase
-        let cap = TaggedUrn::from_string("cap:OP=Generate;EXT=PDF;Target=Thumbnail;").unwrap();
+        let urn = TaggedUrn::from_string("cap:OP=Generate;EXT=PDF;Target=Thumbnail;").unwrap();
 
         // Keys are always lowercase
-        assert_eq!(cap.get_tag("op"), Some(&"generate".to_string()));
-        assert_eq!(cap.get_tag("ext"), Some(&"pdf".to_string()));
-        assert_eq!(cap.get_tag("target"), Some(&"thumbnail".to_string()));
+        assert_eq!(urn.get_tag("op"), Some(&"generate".to_string()));
+        assert_eq!(urn.get_tag("ext"), Some(&"pdf".to_string()));
+        assert_eq!(urn.get_tag("target"), Some(&"thumbnail".to_string()));
 
         // Key lookup is case-insensitive
-        assert_eq!(cap.get_tag("OP"), Some(&"generate".to_string()));
-        assert_eq!(cap.get_tag("Op"), Some(&"generate".to_string()));
+        assert_eq!(urn.get_tag("OP"), Some(&"generate".to_string()));
+        assert_eq!(urn.get_tag("Op"), Some(&"generate".to_string()));
 
         // Both URNs parse to same lowercase values (same tags, same values)
-        let cap2 = TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
-        assert_eq!(cap.to_string(), cap2.to_string());
-        assert_eq!(cap, cap2);
+        let urn2 = TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
+        assert_eq!(urn.to_string(), urn2.to_string());
+        assert_eq!(urn, urn2);
     }
 
     #[test]
     fn test_quoted_values_preserve_case() {
         // Quoted values preserve their case
-        let cap = TaggedUrn::from_string(r#"cap:key="Value With Spaces""#).unwrap();
-        assert_eq!(cap.get_tag("key"), Some(&"Value With Spaces".to_string()));
+        let urn = TaggedUrn::from_string(r#"cap:key="Value With Spaces""#).unwrap();
+        assert_eq!(urn.get_tag("key"), Some(&"Value With Spaces".to_string()));
 
         // Key is still lowercase
-        let cap2 = TaggedUrn::from_string(r#"cap:KEY="Value With Spaces""#).unwrap();
-        assert_eq!(cap2.get_tag("key"), Some(&"Value With Spaces".to_string()));
+        let urn2 = TaggedUrn::from_string(r#"cap:KEY="Value With Spaces""#).unwrap();
+        assert_eq!(urn2.get_tag("key"), Some(&"Value With Spaces".to_string()));
 
         // Unquoted vs quoted case difference
         let unquoted = TaggedUrn::from_string("cap:key=UPPERCASE").unwrap();
@@ -700,38 +855,38 @@ mod tests {
     #[test]
     fn test_quoted_value_special_chars() {
         // Semicolons in quoted values
-        let cap = TaggedUrn::from_string(r#"cap:key="value;with;semicolons""#).unwrap();
-        assert_eq!(cap.get_tag("key"), Some(&"value;with;semicolons".to_string()));
+        let urn = TaggedUrn::from_string(r#"cap:key="value;with;semicolons""#).unwrap();
+        assert_eq!(urn.get_tag("key"), Some(&"value;with;semicolons".to_string()));
 
         // Equals in quoted values
-        let cap2 = TaggedUrn::from_string(r#"cap:key="value=with=equals""#).unwrap();
-        assert_eq!(cap2.get_tag("key"), Some(&"value=with=equals".to_string()));
+        let urn2 = TaggedUrn::from_string(r#"cap:key="value=with=equals""#).unwrap();
+        assert_eq!(urn2.get_tag("key"), Some(&"value=with=equals".to_string()));
 
         // Spaces in quoted values
-        let cap3 = TaggedUrn::from_string(r#"cap:key="hello world""#).unwrap();
-        assert_eq!(cap3.get_tag("key"), Some(&"hello world".to_string()));
+        let urn3 = TaggedUrn::from_string(r#"cap:key="hello world""#).unwrap();
+        assert_eq!(urn3.get_tag("key"), Some(&"hello world".to_string()));
     }
 
     #[test]
     fn test_quoted_value_escape_sequences() {
         // Escaped quotes
-        let cap = TaggedUrn::from_string(r#"cap:key="value\"quoted\"""#).unwrap();
-        assert_eq!(cap.get_tag("key"), Some(&r#"value"quoted""#.to_string()));
+        let urn = TaggedUrn::from_string(r#"cap:key="value\"quoted\"""#).unwrap();
+        assert_eq!(urn.get_tag("key"), Some(&r#"value"quoted""#.to_string()));
 
         // Escaped backslashes
-        let cap2 = TaggedUrn::from_string(r#"cap:key="path\\file""#).unwrap();
-        assert_eq!(cap2.get_tag("key"), Some(&r#"path\file"#.to_string()));
+        let urn2 = TaggedUrn::from_string(r#"cap:key="path\\file""#).unwrap();
+        assert_eq!(urn2.get_tag("key"), Some(&r#"path\file"#.to_string()));
 
         // Mixed escapes
-        let cap3 = TaggedUrn::from_string(r#"cap:key="say \"hello\\world\"""#).unwrap();
-        assert_eq!(cap3.get_tag("key"), Some(&r#"say "hello\world""#.to_string()));
+        let urn3 = TaggedUrn::from_string(r#"cap:key="say \"hello\\world\"""#).unwrap();
+        assert_eq!(urn3.get_tag("key"), Some(&r#"say "hello\world""#.to_string()));
     }
 
     #[test]
     fn test_mixed_quoted_unquoted() {
-        let cap = TaggedUrn::from_string(r#"cap:a="Quoted";b=simple"#).unwrap();
-        assert_eq!(cap.get_tag("a"), Some(&"Quoted".to_string()));
-        assert_eq!(cap.get_tag("b"), Some(&"simple".to_string()));
+        let urn = TaggedUrn::from_string(r#"cap:a="Quoted";b=simple"#).unwrap();
+        assert_eq!(urn.get_tag("a"), Some(&"Quoted".to_string()));
+        assert_eq!(urn.get_tag("b"), Some(&"simple".to_string()));
     }
 
     #[test]
@@ -762,195 +917,195 @@ mod tests {
     #[test]
     fn test_serialization_smart_quoting() {
         // Simple lowercase value - no quoting needed
-        let cap = TaggedUrnBuilder::new().tag("key", "simple").build().unwrap();
-        assert_eq!(cap.to_string(), "cap:key=simple");
+        let urn = TaggedUrnBuilder::new("cap").tag("key", "simple").build().unwrap();
+        assert_eq!(urn.to_string(), "cap:key=simple");
 
         // Value with spaces - needs quoting
-        let cap2 = TaggedUrnBuilder::new()
+        let urn2 = TaggedUrnBuilder::new("cap")
             .tag("key", "has spaces")
             .build()
             .unwrap();
-        assert_eq!(cap2.to_string(), r#"cap:key="has spaces""#);
+        assert_eq!(urn2.to_string(), r#"cap:key="has spaces""#);
 
         // Value with semicolons - needs quoting
-        let cap3 = TaggedUrnBuilder::new()
+        let urn3 = TaggedUrnBuilder::new("cap")
             .tag("key", "has;semi")
             .build()
             .unwrap();
-        assert_eq!(cap3.to_string(), r#"cap:key="has;semi""#);
+        assert_eq!(urn3.to_string(), r#"cap:key="has;semi""#);
 
         // Value with uppercase - needs quoting to preserve
-        let cap4 = TaggedUrnBuilder::new()
+        let urn4 = TaggedUrnBuilder::new("cap")
             .tag("key", "HasUpper")
             .build()
             .unwrap();
-        assert_eq!(cap4.to_string(), r#"cap:key="HasUpper""#);
+        assert_eq!(urn4.to_string(), r#"cap:key="HasUpper""#);
 
         // Value with quotes - needs quoting and escaping
-        let cap5 = TaggedUrnBuilder::new()
+        let urn5 = TaggedUrnBuilder::new("cap")
             .tag("key", r#"has"quote"#)
             .build()
             .unwrap();
-        assert_eq!(cap5.to_string(), r#"cap:key="has\"quote""#);
+        assert_eq!(urn5.to_string(), r#"cap:key="has\"quote""#);
 
         // Value with backslashes - needs quoting and escaping
-        let cap6 = TaggedUrnBuilder::new()
+        let urn6 = TaggedUrnBuilder::new("cap")
             .tag("key", r#"path\file"#)
             .build()
             .unwrap();
-        assert_eq!(cap6.to_string(), r#"cap:key="path\\file""#);
+        assert_eq!(urn6.to_string(), r#"cap:key="path\\file""#);
     }
 
     #[test]
     fn test_round_trip_simple() {
         let original = "cap:op=generate;ext=pdf";
-        let cap = TaggedUrn::from_string(original).unwrap();
-        let serialized = cap.to_string();
+        let urn = TaggedUrn::from_string(original).unwrap();
+        let serialized = urn.to_string();
         let reparsed = TaggedUrn::from_string(&serialized).unwrap();
-        assert_eq!(cap, reparsed);
+        assert_eq!(urn, reparsed);
     }
 
     #[test]
     fn test_round_trip_quoted() {
         let original = r#"cap:key="Value With Spaces""#;
-        let cap = TaggedUrn::from_string(original).unwrap();
-        let serialized = cap.to_string();
+        let urn = TaggedUrn::from_string(original).unwrap();
+        let serialized = urn.to_string();
         let reparsed = TaggedUrn::from_string(&serialized).unwrap();
-        assert_eq!(cap, reparsed);
+        assert_eq!(urn, reparsed);
         assert_eq!(reparsed.get_tag("key"), Some(&"Value With Spaces".to_string()));
     }
 
     #[test]
     fn test_round_trip_escapes() {
         let original = r#"cap:key="value\"with\\escapes""#;
-        let cap = TaggedUrn::from_string(original).unwrap();
-        assert_eq!(cap.get_tag("key"), Some(&r#"value"with\escapes"#.to_string()));
-        let serialized = cap.to_string();
+        let urn = TaggedUrn::from_string(original).unwrap();
+        assert_eq!(urn.get_tag("key"), Some(&r#"value"with\escapes"#.to_string()));
+        let serialized = urn.to_string();
         let reparsed = TaggedUrn::from_string(&serialized).unwrap();
-        assert_eq!(cap, reparsed);
+        assert_eq!(urn, reparsed);
     }
 
     #[test]
-    fn test_cap_prefix_required() {
-        // Missing cap: prefix should fail
+    fn test_prefix_required() {
+        // Missing prefix should fail
         assert!(TaggedUrn::from_string("op=generate;ext=pdf").is_err());
 
-        // Valid cap: prefix should work
-        let cap = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert_eq!(cap.get_tag("op"), Some(&"generate".to_string()));
+        // Valid prefix should work
+        let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        assert_eq!(urn.get_tag("op"), Some(&"generate".to_string()));
 
         // Case-insensitive prefix
-        let cap2 = TaggedUrn::from_string("CAP:op=generate").unwrap();
-        assert_eq!(cap2.get_tag("op"), Some(&"generate".to_string()));
+        let urn2 = TaggedUrn::from_string("CAP:op=generate").unwrap();
+        assert_eq!(urn2.get_tag("op"), Some(&"generate".to_string()));
     }
 
     #[test]
     fn test_trailing_semicolon_equivalence() {
         // Both with and without trailing semicolon should be equivalent
-        let cap1 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        let cap2 = TaggedUrn::from_string("cap:op=generate;ext=pdf;").unwrap();
+        let urn1 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:op=generate;ext=pdf;").unwrap();
 
         // They should be equal
-        assert_eq!(cap1, cap2);
+        assert_eq!(urn1, urn2);
 
         // They should have same hash
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
         let mut hasher1 = DefaultHasher::new();
-        cap1.hash(&mut hasher1);
+        urn1.hash(&mut hasher1);
         let hash1 = hasher1.finish();
 
         let mut hasher2 = DefaultHasher::new();
-        cap2.hash(&mut hasher2);
+        urn2.hash(&mut hasher2);
         let hash2 = hasher2.finish();
 
         assert_eq!(hash1, hash2);
 
         // They should have same string representation (canonical form)
-        assert_eq!(cap1.to_string(), cap2.to_string());
+        assert_eq!(urn1.to_string(), urn2.to_string());
 
         // They should match each other
-        assert!(cap1.matches(&cap2));
-        assert!(cap2.matches(&cap1));
+        assert!(urn1.matches(&urn2).unwrap());
+        assert!(urn2.matches(&urn1).unwrap());
     }
 
     #[test]
     fn test_canonical_string_format() {
-        let cap = TaggedUrn::from_string("cap:op=generate;target=thumbnail;ext=pdf").unwrap();
+        let urn = TaggedUrn::from_string("cap:op=generate;target=thumbnail;ext=pdf").unwrap();
         // Should be sorted alphabetically and have no trailing semicolon in canonical form
         // Alphabetical order: ext < op < target
         assert_eq!(
-            cap.to_string(),
+            urn.to_string(),
             "cap:ext=pdf;op=generate;target=thumbnail"
         );
     }
 
     #[test]
     fn test_tag_matching() {
-        let cap = TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
+        let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
 
         // Exact match
         let request1 =
             TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
-        assert!(cap.matches(&request1));
+        assert!(urn.matches(&request1).unwrap());
 
         // Subset match
         let request2 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        assert!(cap.matches(&request2));
+        assert!(urn.matches(&request2).unwrap());
 
-        // Wildcard request should match specific cap
+        // Wildcard request should match specific URN
         let request3 = TaggedUrn::from_string("cap:ext=*").unwrap();
-        assert!(cap.matches(&request3)); // Cap has ext=pdf, request accepts any ext
+        assert!(urn.matches(&request3).unwrap()); // URN has ext=pdf, request accepts any ext
 
         // No match - conflicting value
         let request4 = TaggedUrn::from_string("cap:op=extract").unwrap();
-        assert!(!cap.matches(&request4));
+        assert!(!urn.matches(&request4).unwrap());
     }
 
     #[test]
     fn test_matching_case_sensitive_values() {
         // Values with different case should NOT match
-        let cap1 = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
-        let cap2 = TaggedUrn::from_string(r#"cap:key="value""#).unwrap();
-        assert!(!cap1.matches(&cap2));
-        assert!(!cap2.matches(&cap1));
+        let urn1 = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
+        let urn2 = TaggedUrn::from_string(r#"cap:key="value""#).unwrap();
+        assert!(!urn1.matches(&urn2).unwrap());
+        assert!(!urn2.matches(&urn1).unwrap());
 
         // Same case should match
-        let cap3 = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
-        assert!(cap1.matches(&cap3));
+        let urn3 = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
+        assert!(urn1.matches(&urn3).unwrap());
     }
 
     #[test]
     fn test_missing_tag_handling() {
-        let cap = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let urn = TaggedUrn::from_string("cap:op=generate").unwrap();
 
-        // Request with tag should match cap without tag (treated as wildcard)
+        // Request with tag should match URN without tag (treated as wildcard)
         let request1 = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(cap.matches(&request1)); // cap missing ext tag = wildcard, can handle any ext
+        assert!(urn.matches(&request1).unwrap()); // URN missing ext tag = wildcard, can handle any ext
 
-        // But cap with extra tags can match subset requests
-        let cap2 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        // But URN with extra tags can match subset requests
+        let urn2 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let request2 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        assert!(cap2.matches(&request2));
+        assert!(urn2.matches(&request2).unwrap());
     }
 
     #[test]
     fn test_specificity() {
-        let cap1 = TaggedUrn::from_string("cap:type=general").unwrap();
-        let cap2 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        let cap3 = TaggedUrn::from_string("cap:op=*;ext=pdf").unwrap();
+        let urn1 = TaggedUrn::from_string("cap:type=general").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let urn3 = TaggedUrn::from_string("cap:op=*;ext=pdf").unwrap();
 
-        assert_eq!(cap1.specificity(), 1);
-        assert_eq!(cap2.specificity(), 1);
-        assert_eq!(cap3.specificity(), 1); // wildcard doesn't count
+        assert_eq!(urn1.specificity(), 1);
+        assert_eq!(urn2.specificity(), 1);
+        assert_eq!(urn3.specificity(), 1); // wildcard doesn't count
 
-        assert!(!cap2.is_more_specific_than(&cap1)); // Different tags, not compatible
+        assert!(!urn2.is_more_specific_than(&urn1).unwrap()); // Different tags, not compatible
     }
 
     #[test]
     fn test_builder() {
-        let cap = TaggedUrnBuilder::new()
+        let urn = TaggedUrnBuilder::new("cap")
             .tag("op", "generate")
             .tag("target", "thumbnail")
             .tag("ext", "pdf")
@@ -958,61 +1113,61 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(cap.get_tag("op"), Some(&"generate".to_string()));
-        assert_eq!(cap.get_tag("output"), Some(&"binary".to_string()));
+        assert_eq!(urn.get_tag("op"), Some(&"generate".to_string()));
+        assert_eq!(urn.get_tag("output"), Some(&"binary".to_string()));
     }
 
     #[test]
     fn test_builder_preserves_case() {
-        let cap = TaggedUrnBuilder::new()
+        let urn = TaggedUrnBuilder::new("cap")
             .tag("KEY", "ValueWithCase")
             .build()
             .unwrap();
 
         // Key is lowercase
-        assert_eq!(cap.get_tag("key"), Some(&"ValueWithCase".to_string()));
+        assert_eq!(urn.get_tag("key"), Some(&"ValueWithCase".to_string()));
         // Value case preserved, so needs quoting
-        assert_eq!(cap.to_string(), r#"cap:key="ValueWithCase""#);
+        assert_eq!(urn.to_string(), r#"cap:key="ValueWithCase""#);
     }
 
     #[test]
     fn test_compatibility() {
-        let cap1 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        let cap2 = TaggedUrn::from_string("cap:op=generate;format=*").unwrap();
-        let cap3 = TaggedUrn::from_string("cap:type=image;op=extract").unwrap();
+        let urn1 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:op=generate;format=*").unwrap();
+        let urn3 = TaggedUrn::from_string("cap:type=image;op=extract").unwrap();
 
-        assert!(cap1.is_compatible_with(&cap2));
-        assert!(cap2.is_compatible_with(&cap1));
-        assert!(!cap1.is_compatible_with(&cap3));
+        assert!(urn1.is_compatible_with(&urn2).unwrap());
+        assert!(urn2.is_compatible_with(&urn1).unwrap());
+        assert!(!urn1.is_compatible_with(&urn3).unwrap());
 
         // Missing tags are treated as wildcards for compatibility
-        let cap4 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        assert!(cap1.is_compatible_with(&cap4));
-        assert!(cap4.is_compatible_with(&cap1));
+        let urn4 = TaggedUrn::from_string("cap:op=generate").unwrap();
+        assert!(urn1.is_compatible_with(&urn4).unwrap());
+        assert!(urn4.is_compatible_with(&urn1).unwrap());
     }
 
     #[test]
     fn test_best_match() {
-        let caps = vec![
+        let urns = vec![
             TaggedUrn::from_string("cap:op=*").unwrap(),
             TaggedUrn::from_string("cap:op=generate").unwrap(),
             TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap(),
         ];
 
         let request = TaggedUrn::from_string("cap:op=generate").unwrap();
-        let best = CapMatcher::find_best_match(&caps, &request).unwrap();
+        let best = CapMatcher::find_best_match(&urns, &request).unwrap().unwrap();
 
-        // Most specific cap that can handle the request
+        // Most specific URN that can handle the request
         // Alphabetical order: ext < op
         assert_eq!(best.to_string(), "cap:ext=pdf;op=generate");
     }
 
     #[test]
     fn test_merge_and_subset() {
-        let cap1 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        let cap2 = TaggedUrn::from_string("cap:ext=pdf;output=binary").unwrap();
+        let urn1 = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:ext=pdf;output=binary").unwrap();
 
-        let merged = cap1.merge(&cap2);
+        let merged = urn1.merge(&urn2).unwrap();
         // Alphabetical order: ext < op < output
         assert_eq!(
             merged.to_string(),
@@ -1024,44 +1179,62 @@ mod tests {
     }
 
     #[test]
+    fn test_merge_prefix_mismatch() {
+        let urn1 = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let urn2 = TaggedUrn::from_string("myapp:ext=pdf").unwrap();
+
+        let result = urn1.merge(&urn2);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TaggedUrnError::PrefixMismatch { .. }));
+    }
+
+    #[test]
     fn test_wildcard_tag() {
-        let cap = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        let wildcarded = cap.clone().with_wildcard_tag("ext");
+        let urn = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        let wildcarded = urn.clone().with_wildcard_tag("ext");
 
         assert_eq!(wildcarded.to_string(), "cap:ext=*");
 
-        // Test that wildcarded cap can match more requests
+        // Test that wildcarded URN can match more requests
         let request = TaggedUrn::from_string("cap:ext=jpg").unwrap();
-        assert!(!cap.matches(&request));
-        assert!(wildcarded.matches(&TaggedUrn::from_string("cap:ext=*").unwrap()));
+        assert!(!urn.matches(&request).unwrap());
+        assert!(wildcarded.matches(&TaggedUrn::from_string("cap:ext=*").unwrap()).unwrap());
     }
 
     #[test]
     fn test_empty_tagged_urn() {
         // Empty tagged URN should be valid and match everything
-        let empty_cap = TaggedUrn::from_string("cap:").unwrap();
-        assert_eq!(empty_cap.tags.len(), 0);
-        assert_eq!(empty_cap.to_string(), "cap:");
+        let empty_urn = TaggedUrn::from_string("cap:").unwrap();
+        assert_eq!(empty_urn.tags.len(), 0);
+        assert_eq!(empty_urn.to_string(), "cap:");
 
-        // Should match any other cap
-        let specific_cap = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(empty_cap.matches(&specific_cap));
-        assert!(empty_cap.matches(&empty_cap));
+        // Should match any other URN with same prefix
+        let specific_urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        assert!(empty_urn.matches(&specific_urn).unwrap());
+        assert!(empty_urn.matches(&empty_urn).unwrap());
 
         // With trailing semicolon
-        let empty_cap2 = TaggedUrn::from_string("cap:;").unwrap();
-        assert_eq!(empty_cap2.tags.len(), 0);
+        let empty_urn2 = TaggedUrn::from_string("cap:;").unwrap();
+        assert_eq!(empty_urn2.tags.len(), 0);
+    }
+
+    #[test]
+    fn test_empty_with_custom_prefix() {
+        let empty_urn = TaggedUrn::from_string("myapp:").unwrap();
+        assert_eq!(empty_urn.get_prefix(), "myapp");
+        assert_eq!(empty_urn.tags.len(), 0);
+        assert_eq!(empty_urn.to_string(), "myapp:");
     }
 
     #[test]
     fn test_extended_character_support() {
         // Test forward slashes and colons in tag components
-        let cap = TaggedUrn::from_string("cap:url=https://example_org/api;path=/some/file").unwrap();
+        let urn = TaggedUrn::from_string("cap:url=https://example_org/api;path=/some/file").unwrap();
         assert_eq!(
-            cap.get_tag("url"),
+            urn.get_tag("url"),
             Some(&"https://example_org/api".to_string())
         );
-        assert_eq!(cap.get_tag("path"), Some(&"/some/file".to_string()));
+        assert_eq!(urn.get_tag("path"), Some(&"/some/file".to_string()));
     }
 
     #[test]
@@ -1070,8 +1243,8 @@ mod tests {
         assert!(TaggedUrn::from_string("cap:*=value").is_err());
 
         // Wildcard should be accepted in values
-        let cap = TaggedUrn::from_string("cap:key=*").unwrap();
-        assert_eq!(cap.get_tag("key"), Some(&"*".to_string()));
+        let urn = TaggedUrn::from_string("cap:key=*").unwrap();
+        assert_eq!(urn.get_tag("key"), Some(&"*".to_string()));
     }
 
     #[test]
@@ -1104,24 +1277,24 @@ mod tests {
 
     #[test]
     fn test_has_tag_case_sensitive() {
-        let cap = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
+        let urn = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
 
         // Exact case match works
-        assert!(cap.has_tag("key", "Value"));
+        assert!(urn.has_tag("key", "Value"));
 
         // Different case does not match
-        assert!(!cap.has_tag("key", "value"));
-        assert!(!cap.has_tag("key", "VALUE"));
+        assert!(!urn.has_tag("key", "value"));
+        assert!(!urn.has_tag("key", "VALUE"));
 
         // Key lookup is case-insensitive
-        assert!(cap.has_tag("KEY", "Value"));
-        assert!(cap.has_tag("Key", "Value"));
+        assert!(urn.has_tag("KEY", "Value"));
+        assert!(urn.has_tag("Key", "Value"));
     }
 
     #[test]
     fn test_with_tag_preserves_value() {
-        let cap = TaggedUrn::empty().with_tag("key".to_string(), "ValueWithCase".to_string());
-        assert_eq!(cap.get_tag("key"), Some(&"ValueWithCase".to_string()));
+        let urn = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "ValueWithCase".to_string());
+        assert_eq!(urn.get_tag("key"), Some(&"ValueWithCase".to_string()));
     }
 
     #[test]
@@ -1145,99 +1318,115 @@ mod tests {
     #[test]
     fn test_matching_semantics_test1_exact_match() {
         // Test 1: Exact match
-        // Cap:     cap:op=generate;ext=pdf
+        // URN:     cap:op=generate;ext=pdf
         // Request: cap:op=generate;ext=pdf
         // Result:  MATCH
-        let cap = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(cap.matches(&request), "Test 1: Exact match should succeed");
+        assert!(urn.matches(&request).unwrap(), "Test 1: Exact match should succeed");
     }
 
     #[test]
-    fn test_matching_semantics_test2_cap_missing_tag() {
-        // Test 2: Cap missing tag (implicit wildcard)
-        // Cap:     cap:op=generate
+    fn test_matching_semantics_test2_urn_missing_tag() {
+        // Test 2: URN missing tag (implicit wildcard)
+        // URN:     cap:op=generate
         // Request: cap:op=generate;ext=pdf
-        // Result:  MATCH (cap can handle any ext)
-        let cap = TaggedUrn::from_string("cap:op=generate").unwrap();
+        // Result:  MATCH (URN can handle any ext)
+        let urn = TaggedUrn::from_string("cap:op=generate").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(cap.matches(&request), "Test 2: Cap missing tag should match (implicit wildcard)");
+        assert!(urn.matches(&request).unwrap(), "Test 2: URN missing tag should match (implicit wildcard)");
     }
 
     #[test]
-    fn test_matching_semantics_test3_cap_has_extra_tag() {
-        // Test 3: Cap has extra tag
-        // Cap:     cap:op=generate;ext=pdf;version=2
+    fn test_matching_semantics_test3_urn_has_extra_tag() {
+        // Test 3: URN has extra tag
+        // URN:     cap:op=generate;ext=pdf;version=2
         // Request: cap:op=generate;ext=pdf
         // Result:  MATCH (request doesn't constrain version)
-        let cap = TaggedUrn::from_string("cap:op=generate;ext=pdf;version=2").unwrap();
+        let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf;version=2").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(cap.matches(&request), "Test 3: Cap with extra tag should match");
+        assert!(urn.matches(&request).unwrap(), "Test 3: URN with extra tag should match");
     }
 
     #[test]
     fn test_matching_semantics_test4_request_has_wildcard() {
         // Test 4: Request has wildcard
-        // Cap:     cap:op=generate;ext=pdf
+        // URN:     cap:op=generate;ext=pdf
         // Request: cap:op=generate;ext=*
         // Result:  MATCH (request accepts any ext)
-        let cap = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=*").unwrap();
-        assert!(cap.matches(&request), "Test 4: Request wildcard should match");
+        assert!(urn.matches(&request).unwrap(), "Test 4: Request wildcard should match");
     }
 
     #[test]
-    fn test_matching_semantics_test5_cap_has_wildcard() {
-        // Test 5: Cap has wildcard
-        // Cap:     cap:op=generate;ext=*
+    fn test_matching_semantics_test5_urn_has_wildcard() {
+        // Test 5: URN has wildcard
+        // URN:     cap:op=generate;ext=*
         // Request: cap:op=generate;ext=pdf
-        // Result:  MATCH (cap handles any ext)
-        let cap = TaggedUrn::from_string("cap:op=generate;ext=*").unwrap();
+        // Result:  MATCH (URN handles any ext)
+        let urn = TaggedUrn::from_string("cap:op=generate;ext=*").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(cap.matches(&request), "Test 5: Cap wildcard should match");
+        assert!(urn.matches(&request).unwrap(), "Test 5: URN wildcard should match");
     }
 
     #[test]
     fn test_matching_semantics_test6_value_mismatch() {
         // Test 6: Value mismatch
-        // Cap:     cap:op=generate;ext=pdf
+        // URN:     cap:op=generate;ext=pdf
         // Request: cap:op=generate;ext=docx
         // Result:  NO MATCH
-        let cap = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
-        assert!(!cap.matches(&request), "Test 6: Value mismatch should not match");
+        assert!(!urn.matches(&request).unwrap(), "Test 6: Value mismatch should not match");
     }
 
     #[test]
     fn test_matching_semantics_test7_fallback_pattern() {
         // Test 7: Fallback pattern
-        // Cap:     cap:op=generate_thumbnail;out=std:binary.v1
+        // URN:     cap:op=generate_thumbnail;out=std:binary.v1
         // Request: cap:op=generate_thumbnail;out=std:binary.v1;ext=wav
-        // Result:  MATCH (cap has implicit ext=*)
-        let cap = TaggedUrn::from_string("cap:op=generate_thumbnail;out=std:binary.v1").unwrap();
+        // Result:  MATCH (URN has implicit ext=*)
+        let urn = TaggedUrn::from_string("cap:op=generate_thumbnail;out=std:binary.v1").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate_thumbnail;out=std:binary.v1;ext=wav").unwrap();
-        assert!(cap.matches(&request), "Test 7: Fallback pattern should match (cap missing ext = implicit wildcard)");
+        assert!(urn.matches(&request).unwrap(), "Test 7: Fallback pattern should match (URN missing ext = implicit wildcard)");
     }
 
     #[test]
-    fn test_matching_semantics_test8_empty_cap_matches_anything() {
-        // Test 8: Empty cap matches anything
-        // Cap:     cap:
+    fn test_matching_semantics_test8_empty_urn_matches_anything() {
+        // Test 8: Empty URN matches anything
+        // URN:     cap:
         // Request: cap:op=generate;ext=pdf
         // Result:  MATCH
-        let cap = TaggedUrn::from_string("cap:").unwrap();
+        let urn = TaggedUrn::from_string("cap:").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(cap.matches(&request), "Test 8: Empty cap should match anything");
+        assert!(urn.matches(&request).unwrap(), "Test 8: Empty URN should match anything");
     }
 
     #[test]
     fn test_matching_semantics_test9_cross_dimension_independence() {
         // Test 9: Cross-dimension independence
-        // Cap:     cap:op=generate
+        // URN:     cap:op=generate
         // Request: cap:ext=pdf
         // Result:  MATCH (both have implicit wildcards for missing tags)
-        let cap = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let urn = TaggedUrn::from_string("cap:op=generate").unwrap();
         let request = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(cap.matches(&request), "Test 9: Cross-dimension independence should match");
+        assert!(urn.matches(&request).unwrap(), "Test 9: Cross-dimension independence should match");
+    }
+
+    #[test]
+    fn test_matching_different_prefixes_error() {
+        // URNs with different prefixes should cause an error, not just return false
+        let urn1 = TaggedUrn::from_string("cap:op=test").unwrap();
+        let urn2 = TaggedUrn::from_string("other:op=test").unwrap();
+
+        let result = urn1.matches(&urn2);
+        assert!(result.is_err());
+
+        let result2 = urn1.is_compatible_with(&urn2);
+        assert!(result2.is_err());
+
+        let result3 = urn1.is_more_specific_than(&urn2);
+        assert!(result3.is_err());
     }
 }
