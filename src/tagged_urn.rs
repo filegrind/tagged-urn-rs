@@ -1384,11 +1384,11 @@ mod tests {
     #[test]
     fn test_matching_semantics_test7_fallback_pattern() {
         // Test 7: Fallback pattern
-        // URN:     cap:op=generate_thumbnail;out=media:type=binary;v=1
-        // Request: cap:op=generate_thumbnail;out=media:type=binary;v=1;ext=wav
+        // URN:     cap:op=generate_thumbnail;out="media:type=binary;v=1"
+        // Request: cap:op=generate_thumbnail;out="media:type=binary;v=1";ext=wav
         // Result:  MATCH (URN has implicit ext=*)
-        let urn = TaggedUrn::from_string("cap:op=generate_thumbnail;out=media:type=binary;v=1").unwrap();
-        let request = TaggedUrn::from_string("cap:op=generate_thumbnail;out=media:type=binary;v=1;ext=wav").unwrap();
+        let urn = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:type=binary;v=1""#).unwrap();
+        let request = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:type=binary;v=1";ext=wav"#).unwrap();
         assert!(urn.matches(&request).unwrap(), "Test 7: Fallback pattern should match (URN missing ext = implicit wildcard)");
     }
 
