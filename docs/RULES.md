@@ -62,8 +62,14 @@ No reserved tag names - anything goes for tag keys.
 - Wildcard `*` is accepted only as tag value, not as tag key
 - When used as a tag value, `*` matches any value for that tag key (see Matching Semantics below)
 
-### 11. No Empty Components
-Tags with no values are not accepted. Both key and value must be non-empty after trimming whitespace.
+### 11. Value-less Tags (Existence Assertion)
+- Tags may be specified without a value: `cap:key1=value1;optimize;key2=value2`
+- A value-less tag like `optimize` is equivalent to `optimize=*` (wildcard)
+- This asserts that the tag exists but matches any value
+- Value-less tags are useful as flags or for checking tag existence
+- **Parsing:** `tag` (no `=`) is parsed as `tag=*`
+- **Serialization:** `tag=*` is serialized as just `tag` (no `=*`)
+- **Note:** `tag=` (explicit `=` with no value) is still an error - this is different from a value-less tag
 
 ## Matching Semantics (CRITICAL)
 
@@ -125,6 +131,21 @@ Result:  NO MATCH (pdf ≠ docx)
 URN:     cap:op=generate_thumbnail;out=binary   (no ext)
 Request: cap:op=generate_thumbnail;out=binary;ext=wav
 Result:  MATCH (URN can handle any ext including wav)
+
+# Example 7: Value-less tag (wildcard)
+URN:     cap:op=generate;ext              (ext is value-less = ext=*)
+Request: cap:op=generate;ext=pdf
+Result:  MATCH (value-less tag matches any value)
+
+# Example 8: Value-less tag in request
+URN:     cap:op=generate;ext=pdf
+Request: cap:op=generate;ext              (ext is value-less = ext=*)
+Result:  MATCH (request accepts any ext value)
+
+# Example 9: Mixed value-less and valued tags
+URN:     cap:op=generate;optimize;ext=pdf   (optimize is value-less)
+Request: cap:op=generate;ext=pdf
+Result:  MATCH (request doesn't constrain optimize)
 ```
 
 ### 15. Specificity for Best Match Selection
@@ -132,6 +153,7 @@ When multiple URNs match a request, select the one with highest specificity:
 - Specificity = count of non-wildcard tags
 - `cap:op=generate;ext=pdf` has specificity 2
 - `cap:op=generate;ext=*` has specificity 1 (wildcard doesn't count)
+- `cap:op=generate;ext` has specificity 1 (value-less tag = wildcard, doesn't count)
 - `cap:op=generate` has specificity 1
 - Higher specificity wins
 
@@ -196,6 +218,8 @@ Forward slashes (`/`) and colons (`:`) are valid anywhere in tag components and 
 - All implementations must reject duplicate keys with appropriate error messages
 - All implementations must use state-machine parsing for quoted value support
 - All implementations must implement smart quoting on serialization
+- All implementations must parse value-less tags as wildcard (`tag` → `tag=*`)
+- All implementations must serialize wildcard tags as value-less (`tag=*` → `tag`)
 
 ## Error Codes (Consistent Across All Implementations)
 

@@ -9,6 +9,7 @@ Tagged URN provides a formal system for tag-based identifiers with matching and 
 ## Features
 
 - **Flat Tag Format** - Simple `key=value` pairs separated by semicolons
+- **Value-less Tags** - Tags without values (`tag`) are wildcards (`tag=*`)
 - **Case Insensitive** - All input normalized to lowercase (except quoted values)
 - **Tag Order Independent** - Canonical alphabetical sorting
 - **Wildcard Support** - `*` matching in values only
@@ -29,6 +30,10 @@ cap:op=generate;target=thumbnail;output=binary
 **Wildcards:**
 - Use `*` to match any value: `cap:op=extract;format=*`
 - Wildcards enable flexible matching
+
+**Value-less Tags:**
+- Tags without values are wildcards: `cap:op=extract;optimize` equals `cap:op=extract;optimize=*`
+- Useful as flags or existence checks: `cap:premium;feature=export`
 
 **Specificity:**
 - More specific URNs are preferred over general ones
