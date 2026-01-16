@@ -129,6 +129,16 @@ impl TaggedUrn {
                             ));
                         }
                         state = ParseState::ExpectingValue;
+                    } else if c == ';' {
+                        // Value-less tag: treat as wildcard
+                        if current_key.is_empty() {
+                            return Err(TaggedUrnError::EmptyTagComponent(
+                                "empty key".to_string(),
+                            ));
+                        }
+                        current_value = "*".to_string();
+                        Self::finish_tag(&mut tags, &mut current_key, &mut current_value)?;
+                        state = ParseState::ExpectingKey;
                     } else if Self::is_valid_key_char(c) {
                         current_key.push(c.to_ascii_lowercase());
                     } else {
@@ -220,10 +230,14 @@ impl TaggedUrn {
                 return Err(TaggedUrnError::UnterminatedQuote(pos));
             }
             ParseState::InKey => {
-                return Err(TaggedUrnError::InvalidTagFormat(format!(
-                    "incomplete tag '{}'",
-                    current_key
-                )));
+                // Value-less tag at end: treat as wildcard
+                if current_key.is_empty() {
+                    return Err(TaggedUrnError::EmptyTagComponent(
+                        "empty key".to_string(),
+                    ));
+                }
+                current_value = "*".to_string();
+                Self::finish_tag(&mut tags, &mut current_key, &mut current_value)?;
             }
             ParseState::ExpectingValue => {
                 return Err(TaggedUrnError::EmptyTagComponent(format!(
@@ -314,12 +328,16 @@ impl TaggedUrn {
     /// Tags are already sorted alphabetically due to BTreeMap
     /// No trailing semicolon in canonical form
     /// Values are quoted only when necessary (smart quoting)
+    /// Wildcard values (*) are serialized as value-less tags (just the key)
     pub fn to_string(&self) -> String {
         let tags_str = self
             .tags
             .iter()
             .map(|(k, v)| {
-                if Self::needs_quoting(v) {
+                if v == "*" {
+                    // Value-less tag: output just the key
+                    k.clone()
+                } else if Self::needs_quoting(v) {
                     format!("{}={}", k, Self::quote_value(v))
                 } else {
                     format!("{}={}", k, v)
@@ -1193,12 +1211,13 @@ mod tests {
         let urn = TaggedUrn::from_string("cap:ext=pdf").unwrap();
         let wildcarded = urn.clone().with_wildcard_tag("ext");
 
-        assert_eq!(wildcarded.to_string(), "cap:ext=*");
+        // Wildcard serializes as value-less tag
+        assert_eq!(wildcarded.to_string(), "cap:ext");
 
         // Test that wildcarded URN can match more requests
         let request = TaggedUrn::from_string("cap:ext=jpg").unwrap();
         assert!(!urn.matches(&request).unwrap());
-        assert!(wildcarded.matches(&TaggedUrn::from_string("cap:ext=*").unwrap()).unwrap());
+        assert!(wildcarded.matches(&TaggedUrn::from_string("cap:ext").unwrap()).unwrap());
     }
 
     #[test]
@@ -1428,5 +1447,150 @@ mod tests {
 
         let result3 = urn1.is_more_specific_than(&urn2);
         assert!(result3.is_err());
+    }
+
+    // ============================================================================
+    // VALUE-LESS TAG TESTS
+    // Value-less tags are equivalent to wildcard tags (key=*)
+    // ============================================================================
+
+    #[test]
+    fn test_valueless_tag_parsing_single() {
+        // Single value-less tag
+        let urn = TaggedUrn::from_string("cap:optimize").unwrap();
+        assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
+        // Serializes as value-less (no =*)
+        assert_eq!(urn.to_string(), "cap:optimize");
+    }
+
+    #[test]
+    fn test_valueless_tag_parsing_multiple() {
+        // Multiple value-less tags
+        let urn = TaggedUrn::from_string("cap:fast;optimize;secure").unwrap();
+        assert_eq!(urn.get_tag("fast"), Some(&"*".to_string()));
+        assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
+        assert_eq!(urn.get_tag("secure"), Some(&"*".to_string()));
+        // Serializes alphabetically as value-less
+        assert_eq!(urn.to_string(), "cap:fast;optimize;secure");
+    }
+
+    #[test]
+    fn test_valueless_tag_mixed_with_valued() {
+        // Mix of value-less and valued tags
+        let urn = TaggedUrn::from_string("cap:op=generate;optimize;ext=pdf;secure").unwrap();
+        assert_eq!(urn.get_tag("op"), Some(&"generate".to_string()));
+        assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
+        assert_eq!(urn.get_tag("ext"), Some(&"pdf".to_string()));
+        assert_eq!(urn.get_tag("secure"), Some(&"*".to_string()));
+        // Serializes alphabetically
+        assert_eq!(urn.to_string(), "cap:ext=pdf;op=generate;optimize;secure");
+    }
+
+    #[test]
+    fn test_valueless_tag_at_end() {
+        // Value-less tag at the end (no trailing semicolon)
+        let urn = TaggedUrn::from_string("cap:op=generate;optimize").unwrap();
+        assert_eq!(urn.get_tag("op"), Some(&"generate".to_string()));
+        assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
+        assert_eq!(urn.to_string(), "cap:op=generate;optimize");
+    }
+
+    #[test]
+    fn test_valueless_tag_equivalence_to_wildcard() {
+        // Value-less tag is equivalent to explicit wildcard
+        let valueless = TaggedUrn::from_string("cap:ext").unwrap();
+        let wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
+        assert_eq!(valueless, wildcard);
+        // Both serialize to value-less form
+        assert_eq!(valueless.to_string(), "cap:ext");
+        assert_eq!(wildcard.to_string(), "cap:ext");
+    }
+
+    #[test]
+    fn test_valueless_tag_matching() {
+        // Value-less tag (wildcard) matches any value
+        let urn = TaggedUrn::from_string("cap:op=generate;ext").unwrap();
+
+        let request_pdf = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let request_docx = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
+        let request_any = TaggedUrn::from_string("cap:op=generate;ext=anything").unwrap();
+
+        assert!(urn.matches(&request_pdf).unwrap());
+        assert!(urn.matches(&request_docx).unwrap());
+        assert!(urn.matches(&request_any).unwrap());
+    }
+
+    #[test]
+    fn test_valueless_tag_in_request() {
+        // Request with value-less tag matches any URN value
+        let request = TaggedUrn::from_string("cap:op=generate;ext").unwrap();
+
+        let urn_pdf = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let urn_docx = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
+        let urn_missing = TaggedUrn::from_string("cap:op=generate").unwrap();
+
+        assert!(urn_pdf.matches(&request).unwrap());
+        assert!(urn_docx.matches(&request).unwrap());
+        assert!(urn_missing.matches(&request).unwrap()); // Missing = implicit wildcard
+    }
+
+    #[test]
+    fn test_valueless_tag_specificity() {
+        // Value-less tags (wildcards) don't count towards specificity
+        let urn1 = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:op=generate;optimize").unwrap();
+        let urn3 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+
+        assert_eq!(urn1.specificity(), 1);
+        assert_eq!(urn2.specificity(), 1); // optimize is wildcard, doesn't count
+        assert_eq!(urn3.specificity(), 2);
+    }
+
+    #[test]
+    fn test_valueless_tag_roundtrip() {
+        // Round-trip parsing and serialization
+        let original = "cap:ext=pdf;op=generate;optimize;secure";
+        let urn = TaggedUrn::from_string(original).unwrap();
+        let serialized = urn.to_string();
+        let reparsed = TaggedUrn::from_string(&serialized).unwrap();
+        assert_eq!(urn, reparsed);
+        assert_eq!(serialized, original);
+    }
+
+    #[test]
+    fn test_valueless_tag_case_normalization() {
+        // Value-less tags are normalized to lowercase like other keys
+        let urn = TaggedUrn::from_string("cap:OPTIMIZE;Fast;SECURE").unwrap();
+        assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
+        assert_eq!(urn.get_tag("fast"), Some(&"*".to_string()));
+        assert_eq!(urn.get_tag("secure"), Some(&"*".to_string()));
+        assert_eq!(urn.to_string(), "cap:fast;optimize;secure");
+    }
+
+    #[test]
+    fn test_empty_value_still_error() {
+        // Empty value with = is still an error (different from value-less)
+        assert!(TaggedUrn::from_string("cap:key=").is_err());
+        assert!(TaggedUrn::from_string("cap:key=;other=value").is_err());
+    }
+
+    #[test]
+    fn test_valueless_tag_compatibility() {
+        // Value-less tags are compatible with any value
+        let urn1 = TaggedUrn::from_string("cap:op=generate;ext").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let urn3 = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
+
+        assert!(urn1.is_compatible_with(&urn2).unwrap());
+        assert!(urn1.is_compatible_with(&urn3).unwrap());
+        // But urn2 and urn3 are not compatible (different specific values)
+        assert!(!urn2.is_compatible_with(&urn3).unwrap());
+    }
+
+    #[test]
+    fn test_valueless_numeric_key_still_rejected() {
+        // Purely numeric keys are still rejected for value-less tags
+        assert!(TaggedUrn::from_string("cap:123").is_err());
+        assert!(TaggedUrn::from_string("cap:op=generate;456").is_err());
     }
 }
