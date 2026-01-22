@@ -1110,7 +1110,7 @@ mod tests {
 
     #[test]
     fn test_specificity() {
-        let urn1 = TaggedUrn::from_string("cap:type=general").unwrap();
+        let urn1 = TaggedUrn::from_string("cap:general").unwrap();
         let urn2 = TaggedUrn::from_string("cap:op=generate").unwrap();
         let urn3 = TaggedUrn::from_string("cap:op=*;ext=pdf").unwrap();
 
@@ -1152,7 +1152,7 @@ mod tests {
     fn test_compatibility() {
         let urn1 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let urn2 = TaggedUrn::from_string("cap:op=generate;format=*").unwrap();
-        let urn3 = TaggedUrn::from_string("cap:type=image;op=extract").unwrap();
+        let urn3 = TaggedUrn::from_string("cap:image;op=extract").unwrap();
 
         assert!(urn1.is_compatible_with(&urn2).unwrap());
         assert!(urn2.is_compatible_with(&urn1).unwrap());
@@ -1403,11 +1403,11 @@ mod tests {
     #[test]
     fn test_matching_semantics_test7_fallback_pattern() {
         // Test 7: Fallback pattern
-        // URN:     cap:op=generate_thumbnail;out="media:type=binary;v=1"
-        // Request: cap:op=generate_thumbnail;out="media:type=binary;v=1";ext=wav
+        // URN:     cap:op=generate_thumbnail;out="media:binary"
+        // Request: cap:op=generate_thumbnail;out="media:binary";ext=wav
         // Result:  MATCH (URN has implicit ext=*)
-        let urn = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:type=binary;v=1""#).unwrap();
-        let request = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:type=binary;v=1";ext=wav"#).unwrap();
+        let urn = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary""#).unwrap();
+        let request = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary";ext=wav"#).unwrap();
         assert!(urn.matches(&request).unwrap(), "Test 7: Fallback pattern should match (URN missing ext = implicit wildcard)");
     }
 
