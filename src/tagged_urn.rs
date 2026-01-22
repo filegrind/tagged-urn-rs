@@ -753,6 +753,12 @@ impl TaggedUrnBuilder {
         self
     }
 
+	/// Add a tag with key (normalized to lowercase) and wildcard value
+    pub fn solo_tag(mut self, key: &str) -> Self {
+        self.tags.insert(key.to_lowercase(), "*".to_string());
+        self
+    }
+
     pub fn build(self) -> Result<TaggedUrn, TaggedUrnError> {
         if self.tags.is_empty() {
             return Err(TaggedUrnError::Empty);
