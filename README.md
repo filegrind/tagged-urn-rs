@@ -23,7 +23,7 @@ Tagged URNs use a flat tag-based format: `cap:tag1=value1;tag2=value2;tag3=value
 **Examples:**
 ```
 cap:op=extract;target=metadata;ext=pdf
-cap:type=image;format=png;quality=high
+cap:image;format=png;quality=high
 cap:op=generate;target=thumbnail;output=binary
 ```
 
@@ -94,7 +94,7 @@ if specific.is_more_specific_than(&general) {
 
 ```rust
 let urn = TaggedUrnBuilder::new()
-    .tag("type", "inference")
+    .tag("inference")
     .tag("op", "conversation")
     .tag("language", "en")
     .build()?;
