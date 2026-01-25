@@ -108,9 +108,9 @@ let urn = TaggedUrnBuilder::new()
 ## Cross-Language Compatibility
 
 This Rust implementation produces identical results to:
-- [Go implementation](../tagged-urn-go/)
-- [JavaScript implementation](../tagged-urn-js/)
-- [Objective-C implementation](../tagged-urn-objc/)
+- [Go implementation](https://github.com/filegrind/tagged-urn-go)
+- [JavaScript implementation](https://github.com/filegrind/tagged-urn-js)
+- [Objective-C implementation](https://github.com/filegrind/tagged-urn-objc)
 
 All implementations pass the same test cases and follow identical rules.
 
