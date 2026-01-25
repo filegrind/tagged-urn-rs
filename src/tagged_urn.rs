@@ -294,6 +294,8 @@ impl TaggedUrn {
             || c == ':'
             || c == '.'
             || c == '*'
+            || c == '?'
+            || c == '!'
     }
 
     /// Check if a string is purely numeric
@@ -328,19 +330,21 @@ impl TaggedUrn {
     /// Tags are already sorted alphabetically due to BTreeMap
     /// No trailing semicolon in canonical form
     /// Values are quoted only when necessary (smart quoting)
-    /// Wildcard values (*) are serialized as value-less tags (just the key)
+    /// Special value serialization:
+    /// - `*` (must-have-any): serialized as value-less tag (just the key)
+    /// - `?` (unspecified): serialized as key=?
+    /// - `!` (must-not-have): serialized as key=!
     pub fn to_string(&self) -> String {
         let tags_str = self
             .tags
             .iter()
             .map(|(k, v)| {
-                if v == "*" {
-                    // Value-less tag: output just the key
-                    k.clone()
-                } else if Self::needs_quoting(v) {
-                    format!("{}={}", k, Self::quote_value(v))
-                } else {
-                    format!("{}={}", k, v)
+                match v.as_str() {
+                    "*" => k.clone(),                      // Valueless sugar: key
+                    "?" => format!("{}=?", k),             // Explicit: key=?
+                    "!" => format!("{}=!", k),             // Explicit: key=!
+                    _ if Self::needs_quoting(v) => format!("{}={}", k, Self::quote_value(v)),
+                    _ => format!("{}={}", k, v),
                 }
             })
             .collect::<Vec<_>>()
@@ -369,7 +373,20 @@ impl TaggedUrn {
 
     /// Add or update a tag
     /// Key is normalized to lowercase; value is preserved as-is
-    pub fn with_tag(mut self, key: String, value: String) -> Self {
+    /// Returns error if value is empty (use "*" for wildcard)
+    pub fn with_tag(mut self, key: String, value: String) -> Result<Self, TaggedUrnError> {
+        if value.is_empty() {
+            return Err(TaggedUrnError::EmptyTagComponent(format!(
+                "empty value for key '{}' (use '*' for wildcard)",
+                key
+            )));
+        }
+        self.tags.insert(key.to_lowercase(), value);
+        Ok(self)
+    }
+
+    /// Add or update a tag (infallible version for internal use where value is known valid)
+    fn with_tag_unchecked(mut self, key: String, value: String) -> Self {
         self.tags.insert(key.to_lowercase(), value);
         self
     }
@@ -381,52 +398,99 @@ impl TaggedUrn {
         self
     }
 
-    /// Check if this URN matches another based on tag compatibility
+    /// Check if this URN (instance) matches a pattern based on tag compatibility
     ///
     /// IMPORTANT: Both URNs must have the same prefix. Comparing URNs with
     /// different prefixes is a programming error and will return an error.
     ///
-    /// A URN matches a request if:
-    /// - Both have the same prefix
-    /// - For each tag in the request: URN has same value, wildcard (*), or missing tag
-    /// - For each tag in the URN: if request is missing that tag, that's fine (URN is more specific)
-    /// Missing tags are treated as wildcards (less specific, can handle any value).
-    pub fn matches(&self, request: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+    /// Per-tag matching semantics:
+    /// | Pattern Form | Interpretation              | Instance Missing | Instance = v | Instance = x≠v |
+    /// |--------------|-----------------------------|--------------------|--------------|----------------|
+    /// | (no entry)   | no constraint               | ✅ match           | ✅ match     | ✅ match       |
+    /// | `K=?`        | no constraint (explicit)    | ✅                 | ✅           | ✅             |
+    /// | `K=!`        | **must-not-have**           | ✅                 | ❌           | ❌             |
+    /// | `K=*`        | **must-have, any value**    | ❌                 | ✅           | ✅             |
+    /// | `K=v`        | **must-have, exact value**  | ❌                 | ✅           | ❌             |
+    ///
+    /// Special values work symmetrically on both instance and pattern sides.
+    pub fn matches(&self, pattern: &TaggedUrn) -> Result<bool, TaggedUrnError> {
         // First check prefix - must match exactly
-        if self.prefix != request.prefix {
+        if self.prefix != pattern.prefix {
             return Err(TaggedUrnError::PrefixMismatch {
                 expected: self.prefix.clone(),
-                actual: request.prefix.clone(),
+                actual: pattern.prefix.clone(),
             });
         }
 
-        // Check all tags that the request specifies
-        for (request_key, request_value) in &request.tags {
-            match self.tags.get(request_key) {
-                Some(urn_value) => {
-                    if urn_value == "*" {
-                        // URN has wildcard - can handle any value
-                        continue;
-                    }
-                    if request_value == "*" {
-                        // Request accepts any value - URN's specific value matches
-                        continue;
-                    }
-                    if urn_value != request_value {
-                        // URN has specific value that doesn't match request's specific value
-                        return Ok(false);
-                    }
-                }
-                None => {
-                    // Missing tag in URN is treated as wildcard - can handle any value
-                    continue;
-                }
+        // Collect all keys from both instance and pattern
+        let all_keys: std::collections::HashSet<&String> = self.tags.keys()
+            .chain(pattern.tags.keys())
+            .collect();
+
+        for key in all_keys {
+            let inst = self.tags.get(key).map(|s| s.as_str());
+            let patt = pattern.tags.get(key).map(|s| s.as_str());
+
+            if !Self::values_match(inst, patt) {
+                return Ok(false);
             }
         }
-
-        // If URN has additional specific tags that request doesn't specify, that's fine
-        // The URN is just more specific than needed
         Ok(true)
+    }
+
+    /// Check if instance value matches pattern constraint
+    ///
+    /// Full cross-product truth table:
+    /// | Instance | Pattern | Match? | Reason |
+    /// |----------|---------|--------|--------|
+    /// | (none)   | (none)  | ✅     | No constraint either side |
+    /// | (none)   | K=?     | ✅     | Pattern doesn't care |
+    /// | (none)   | K=!     | ✅     | Pattern wants absent, it is |
+    /// | (none)   | K=*     | ❌     | Pattern wants present |
+    /// | (none)   | K=v     | ❌     | Pattern wants exact value |
+    /// | K=?      | (any)   | ✅     | Instance doesn't care |
+    /// | K=!      | (none)  | ✅     | Symmetric: absent |
+    /// | K=!      | K=?     | ✅     | Pattern doesn't care |
+    /// | K=!      | K=!     | ✅     | Both want absent |
+    /// | K=!      | K=*     | ❌     | Conflict: absent vs present |
+    /// | K=!      | K=v     | ❌     | Conflict: absent vs value |
+    /// | K=*      | (none)  | ✅     | Pattern has no constraint |
+    /// | K=*      | K=?     | ✅     | Pattern doesn't care |
+    /// | K=*      | K=!     | ❌     | Conflict: present vs absent |
+    /// | K=*      | K=*     | ✅     | Both accept any presence |
+    /// | K=*      | K=v     | ✅     | Instance accepts any, v is fine |
+    /// | K=v      | (none)  | ✅     | Pattern has no constraint |
+    /// | K=v      | K=?     | ✅     | Pattern doesn't care |
+    /// | K=v      | K=!     | ❌     | Conflict: value vs absent |
+    /// | K=v      | K=*     | ✅     | Pattern wants any, v satisfies |
+    /// | K=v      | K=v     | ✅     | Exact match |
+    /// | K=v      | K=w     | ❌     | Value mismatch (v≠w) |
+    fn values_match(inst: Option<&str>, patt: Option<&str>) -> bool {
+        match (inst, patt) {
+            // Pattern has no constraint (no entry or explicit ?)
+            (_, None) | (_, Some("?")) => true,
+
+            // Instance doesn't care (explicit ?)
+            (Some("?"), _) => true,
+
+            // Pattern: must-not-have (!)
+            (None, Some("!")) => true,           // Instance absent, pattern wants absent
+            (Some("!"), Some("!")) => true,      // Both say absent
+            (Some(_), Some("!")) => false,       // Instance has value, pattern wants absent
+
+            // Instance: must-not-have conflicts with pattern wanting value
+            (Some("!"), Some("*")) => false,     // Conflict: absent vs present
+            (Some("!"), Some(_)) => false,       // Conflict: absent vs value
+
+            // Pattern: must-have-any (*)
+            (None, Some("*")) => false,          // Instance missing, pattern wants present
+            (Some(_), Some("*")) => true,        // Instance has value, pattern wants any
+
+            // Pattern: exact value
+            (None, Some(_)) => false,            // Instance missing, pattern wants value
+            (Some("*"), Some(_)) => true,        // Instance accepts any, pattern's value is fine
+            (Some(i), Some(p)) => i == p,        // Both have values, must match exactly
+        }
     }
 
     pub fn matches_str(&self, request_str: &str) -> Result<bool, TaggedUrnError> {
@@ -445,9 +509,37 @@ impl TaggedUrn {
     /// Calculate specificity score for URN matching
     ///
     /// More specific URNs have higher scores and are preferred
+    /// Graded scoring:
+    /// - `K=v` (exact value): 3 points (most specific)
+    /// - `K=*` (must-have-any): 2 points
+    /// - `K=!` (must-not-have): 1 point
+    /// - `K=?` (unspecified): 0 points (least specific)
     pub fn specificity(&self) -> usize {
-        // Count non-wildcard tags
-        self.tags.values().filter(|v| v.as_str() != "*").count()
+        self.tags.values().map(|v| match v.as_str() {
+            "?" => 0,
+            "!" => 1,
+            "*" => 2,
+            _ => 3,  // exact value
+        }).sum()
+    }
+
+    /// Get specificity as a tuple for tie-breaking
+    ///
+    /// Returns (exact_count, must_have_any_count, must_not_count)
+    /// Compare tuples lexicographically when sum scores are equal
+    pub fn specificity_tuple(&self) -> (usize, usize, usize) {
+        let mut exact = 0;
+        let mut must_have_any = 0;
+        let mut must_not = 0;
+        for v in self.tags.values() {
+            match v.as_str() {
+                "?" => {}
+                "!" => must_not += 1,
+                "*" => must_have_any += 1,
+                _ => exact += 1,
+            }
+        }
+        (exact, must_have_any, must_not)
     }
 
     /// Check if this URN is more specific than another
@@ -471,7 +563,14 @@ impl TaggedUrn {
     /// Check if this URN is compatible with another
     ///
     /// Two URNs are compatible if they have the same prefix and can potentially match
-    /// the same types of requests (considering wildcards and missing tags as wildcards)
+    /// the same instances (i.e., there exists at least one instance that both patterns accept)
+    ///
+    /// Compatibility rules:
+    /// - `K=v` and `K=w` (v≠w): NOT compatible (no instance can match both exact values)
+    /// - `K=!` and `K=v`/`K=*`: NOT compatible (one requires absent, other requires present)
+    /// - `K=v` and `K=*`: compatible (instance with K=v matches both)
+    /// - `K=?` is compatible with anything (no constraint)
+    /// - Missing entry is compatible with anything (no constraint)
     pub fn is_compatible_with(&self, other: &TaggedUrn) -> Result<bool, TaggedUrnError> {
         // First check prefix
         if self.prefix != other.prefix {
@@ -490,33 +589,48 @@ impl TaggedUrn {
         all_keys.extend(other.tags.keys().cloned());
 
         for key in all_keys {
-            match (self.tags.get(&key), other.tags.get(&key)) {
-                (Some(v1), Some(v2)) => {
-                    // Both have the tag - they must match or one must be wildcard
-                    if v1 != "*" && v2 != "*" && v1 != v2 {
-                        return Ok(false);
-                    }
-                }
-                (Some(_), None) | (None, Some(_)) => {
-                    // One has the tag, the other doesn't - missing tag is wildcard, so compatible
-                    continue;
-                }
-                (None, None) => {
-                    // Neither has the tag - shouldn't happen in this loop
-                    continue;
-                }
+            if !Self::values_compatible(
+                self.tags.get(&key).map(|s| s.as_str()),
+                other.tags.get(&key).map(|s| s.as_str()),
+            ) {
+                return Ok(false);
             }
         }
 
         Ok(true)
     }
 
-    /// Create a wildcard version by replacing specific values with wildcards
-    pub fn with_wildcard_tag(mut self, key: &str) -> Self {
-        if self.tags.contains_key(key) {
-            self.tags.insert(key.to_string(), "*".to_string());
+    /// Check if two pattern values are compatible (could match the same instance)
+    fn values_compatible(v1: Option<&str>, v2: Option<&str>) -> bool {
+        match (v1, v2) {
+            // Either missing or ? means no constraint - compatible with anything
+            (None, _) | (_, None) => true,
+            (Some("?"), _) | (_, Some("?")) => true,
+
+            // Both are ! - compatible (both want absent)
+            (Some("!"), Some("!")) => true,
+
+            // One is ! and other is value or * - NOT compatible
+            (Some("!"), Some(_)) | (Some(_), Some("!")) => false,
+
+            // Both are * - compatible
+            (Some("*"), Some("*")) => true,
+
+            // One is * and other is value - compatible (value matches *)
+            (Some("*"), Some(_)) | (Some(_), Some("*")) => true,
+
+            // Both are specific values - must be equal
+            (Some(a), Some(b)) => a == b,
         }
-        self
+    }
+
+    /// Create a wildcard version by replacing specific values with wildcards
+    pub fn with_wildcard_tag(self, key: &str) -> Self {
+        if self.tags.contains_key(key) {
+            self.with_tag_unchecked(key.to_string(), "*".to_string())
+        } else {
+            self
+        }
     }
 
     /// Create a subset URN with only specified tags
@@ -748,9 +862,16 @@ impl TaggedUrnBuilder {
     }
 
     /// Add a tag with key (normalized to lowercase) and value (preserved as-is)
-    pub fn tag(mut self, key: &str, value: &str) -> Self {
+    /// Returns error if value is empty (use "*" for wildcard)
+    pub fn tag(mut self, key: &str, value: &str) -> Result<Self, TaggedUrnError> {
+        if value.is_empty() {
+            return Err(TaggedUrnError::EmptyTagComponent(format!(
+                "empty value for key '{}' (use '*' for wildcard)",
+                key
+            )));
+        }
         self.tags.insert(key.to_lowercase(), value.to_string());
-        self
+        Ok(self)
     }
 
 	/// Add a tag with key (normalized to lowercase) and wildcard value
@@ -830,7 +951,7 @@ mod tests {
     #[test]
     fn test_builder_with_prefix() {
         let urn = TaggedUrnBuilder::new("custom")
-            .tag("key", "value")
+            .tag("key", "value").unwrap()
             .build()
             .unwrap();
 
@@ -941,40 +1062,40 @@ mod tests {
     #[test]
     fn test_serialization_smart_quoting() {
         // Simple lowercase value - no quoting needed
-        let urn = TaggedUrnBuilder::new("cap").tag("key", "simple").build().unwrap();
+        let urn = TaggedUrnBuilder::new("cap").tag("key", "simple").unwrap().build().unwrap();
         assert_eq!(urn.to_string(), "cap:key=simple");
 
         // Value with spaces - needs quoting
         let urn2 = TaggedUrnBuilder::new("cap")
-            .tag("key", "has spaces")
+            .tag("key", "has spaces").unwrap()
             .build()
             .unwrap();
         assert_eq!(urn2.to_string(), r#"cap:key="has spaces""#);
 
         // Value with semicolons - needs quoting
         let urn3 = TaggedUrnBuilder::new("cap")
-            .tag("key", "has;semi")
+            .tag("key", "has;semi").unwrap()
             .build()
             .unwrap();
         assert_eq!(urn3.to_string(), r#"cap:key="has;semi""#);
 
         // Value with uppercase - needs quoting to preserve
         let urn4 = TaggedUrnBuilder::new("cap")
-            .tag("key", "HasUpper")
+            .tag("key", "HasUpper").unwrap()
             .build()
             .unwrap();
         assert_eq!(urn4.to_string(), r#"cap:key="HasUpper""#);
 
         // Value with quotes - needs quoting and escaping
         let urn5 = TaggedUrnBuilder::new("cap")
-            .tag("key", r#"has"quote"#)
+            .tag("key", r#"has"quote"#).unwrap()
             .build()
             .unwrap();
         assert_eq!(urn5.to_string(), r#"cap:key="has\"quote""#);
 
         // Value with backslashes - needs quoting and escaping
         let urn6 = TaggedUrnBuilder::new("cap")
-            .tag("key", r#"path\file"#)
+            .tag("key", r#"path\file"#).unwrap()
             .build()
             .unwrap();
         assert_eq!(urn6.to_string(), r#"cap:key="path\\file""#);
@@ -1102,38 +1223,66 @@ mod tests {
 
     #[test]
     fn test_missing_tag_handling() {
+        // NEW SEMANTICS: Missing tag in instance means the tag doesn't exist.
+        // Pattern constraints must be satisfied by instance.
+
         let urn = TaggedUrn::from_string("cap:op=generate").unwrap();
 
-        // Request with tag should match URN without tag (treated as wildcard)
-        let request1 = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(urn.matches(&request1).unwrap()); // URN missing ext tag = wildcard, can handle any ext
+        // Pattern with tag that instance doesn't have: NO MATCH
+        // Pattern ext=pdf requires instance to have ext=pdf, but instance doesn't have ext
+        let pattern1 = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        assert!(!urn.matches(&pattern1).unwrap()); // Instance missing ext, pattern wants ext=pdf
 
-        // But URN with extra tags can match subset requests
+        // Pattern missing tag = no constraint: MATCH
+        // Instance has op=generate, pattern has no constraint on op
         let urn2 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        let request2 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        assert!(urn2.matches(&request2).unwrap());
+        let pattern2 = TaggedUrn::from_string("cap:op=generate").unwrap();
+        assert!(urn2.matches(&pattern2).unwrap()); // Instance has ext=pdf, pattern doesn't constrain ext
+
+        // To match any value of a tag, use explicit ? or *
+        let pattern3 = TaggedUrn::from_string("cap:ext=?").unwrap(); // ? = no constraint
+        assert!(urn.matches(&pattern3).unwrap()); // Instance missing ext, pattern doesn't care
+
+        // * means must-have-any - instance must have the tag
+        let pattern4 = TaggedUrn::from_string("cap:ext=*").unwrap();
+        assert!(!urn.matches(&pattern4).unwrap()); // Instance missing ext, pattern requires ext to be present
     }
 
     #[test]
     fn test_specificity() {
-        let urn1 = TaggedUrn::from_string("cap:general").unwrap();
-        let urn2 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        let urn3 = TaggedUrn::from_string("cap:op=*;ext=pdf").unwrap();
+        // NEW GRADED SPECIFICITY:
+        // K=v (exact value): 3 points
+        // K=* (must-have-any): 2 points
+        // K=! (must-not-have): 1 point
+        // K=? (unspecified): 0 points
 
-        assert_eq!(urn1.specificity(), 1);
-        assert_eq!(urn2.specificity(), 1);
-        assert_eq!(urn3.specificity(), 1); // wildcard doesn't count
+        let urn1 = TaggedUrn::from_string("cap:general").unwrap(); // value-less = * = 2 points
+        let urn2 = TaggedUrn::from_string("cap:op=generate").unwrap(); // exact = 3 points
+        let urn3 = TaggedUrn::from_string("cap:op=*;ext=pdf").unwrap(); // * + exact = 2 + 3 = 5 points
+        let urn4 = TaggedUrn::from_string("cap:op=?").unwrap(); // ? = 0 points
+        let urn5 = TaggedUrn::from_string("cap:op=!").unwrap(); // ! = 1 point
 
-        assert!(!urn2.is_more_specific_than(&urn1).unwrap()); // Different tags, not compatible
+        assert_eq!(urn1.specificity(), 2); // * = 2
+        assert_eq!(urn2.specificity(), 3); // exact = 3
+        assert_eq!(urn3.specificity(), 5); // * + exact = 2 + 3
+        assert_eq!(urn4.specificity(), 0); // ? = 0
+        assert_eq!(urn5.specificity(), 1); // ! = 1
+
+        // Specificity tuple for tie-breaking: (exact_count, must_have_any_count, must_not_count)
+        assert_eq!(urn2.specificity_tuple(), (1, 0, 0));
+        assert_eq!(urn3.specificity_tuple(), (1, 1, 0));
+        assert_eq!(urn5.specificity_tuple(), (0, 0, 1));
+
+        assert!(urn2.is_more_specific_than(&urn1).unwrap()); // 3 > 2
     }
 
     #[test]
     fn test_builder() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("op", "generate")
-            .tag("target", "thumbnail")
-            .tag("ext", "pdf")
-            .tag("output", "binary")
+            .tag("op", "generate").unwrap()
+            .tag("target", "thumbnail").unwrap()
+            .tag("ext", "pdf").unwrap()
+            .tag("output", "binary").unwrap()
             .build()
             .unwrap();
 
@@ -1144,7 +1293,7 @@ mod tests {
     #[test]
     fn test_builder_preserves_case() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("KEY", "ValueWithCase")
+            .tag("KEY", "ValueWithCase").unwrap()
             .build()
             .unwrap();
 
@@ -1228,14 +1377,26 @@ mod tests {
 
     #[test]
     fn test_empty_tagged_urn() {
-        // Empty tagged URN should be valid and match everything
+        // Empty tagged URN is valid
         let empty_urn = TaggedUrn::from_string("cap:").unwrap();
         assert_eq!(empty_urn.tags.len(), 0);
         assert_eq!(empty_urn.to_string(), "cap:");
 
-        // Should match any other URN with same prefix
+        // NEW SEMANTICS:
+        // Empty PATTERN matches any INSTANCE (pattern has no constraints)
+        // Empty INSTANCE only matches patterns that have no required tags
+
         let specific_urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(empty_urn.matches(&specific_urn).unwrap());
+
+        // Empty instance vs specific pattern: NO MATCH
+        // Pattern requires op=generate and ext=pdf, instance doesn't have them
+        assert!(!empty_urn.matches(&specific_urn).unwrap());
+
+        // Specific instance vs empty pattern: MATCH
+        // Pattern has no constraints, instance can have anything
+        assert!(specific_urn.matches(&empty_urn).unwrap());
+
+        // Empty instance vs empty pattern: MATCH
         assert!(empty_urn.matches(&empty_urn).unwrap());
 
         // With trailing semicolon
@@ -1318,8 +1479,30 @@ mod tests {
 
     #[test]
     fn test_with_tag_preserves_value() {
-        let urn = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "ValueWithCase".to_string());
+        let urn = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "ValueWithCase".to_string()).unwrap();
         assert_eq!(urn.get_tag("key"), Some(&"ValueWithCase".to_string()));
+    }
+
+    #[test]
+    fn test_with_tag_rejects_empty_value() {
+        let result = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "".to_string());
+        assert!(result.is_err());
+        if let Err(TaggedUrnError::EmptyTagComponent(msg)) = result {
+            assert!(msg.contains("empty value"));
+        } else {
+            panic!("Expected EmptyTagComponent error");
+        }
+    }
+
+    #[test]
+    fn test_builder_rejects_empty_value() {
+        let result = TaggedUrnBuilder::new("cap").tag("key", "");
+        assert!(result.is_err());
+        if let Err(TaggedUrnError::EmptyTagComponent(msg)) = result {
+            assert!(msg.contains("empty value"));
+        } else {
+            panic!("Expected EmptyTagComponent error");
+        }
     }
 
     #[test]
@@ -1352,14 +1535,21 @@ mod tests {
     }
 
     #[test]
-    fn test_matching_semantics_test2_urn_missing_tag() {
-        // Test 2: URN missing tag (implicit wildcard)
-        // URN:     cap:op=generate
-        // Request: cap:op=generate;ext=pdf
-        // Result:  MATCH (URN can handle any ext)
-        let urn = TaggedUrn::from_string("cap:op=generate").unwrap();
-        let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(urn.matches(&request).unwrap(), "Test 2: URN missing tag should match (implicit wildcard)");
+    fn test_matching_semantics_test2_instance_missing_tag() {
+        // Test 2: Instance missing tag
+        // Instance: cap:op=generate
+        // Pattern:  cap:op=generate;ext=pdf
+        // Result:   NO MATCH (pattern requires ext=pdf, instance doesn't have ext)
+        //
+        // NEW SEMANTICS: Missing tag in instance means it doesn't exist.
+        // Pattern K=v requires instance to have K=v.
+        let instance = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let pattern = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        assert!(!instance.matches(&pattern).unwrap(), "Test 2: Instance missing tag should NOT match when pattern requires it");
+
+        // To accept any ext (or missing), use pattern with ext=?
+        let pattern_optional = TaggedUrn::from_string("cap:op=generate;ext=?").unwrap();
+        assert!(instance.matches(&pattern_optional).unwrap(), "Pattern with ext=? should match instance without ext");
     }
 
     #[test]
@@ -1407,36 +1597,57 @@ mod tests {
     }
 
     #[test]
-    fn test_matching_semantics_test7_fallback_pattern() {
-        // Test 7: Fallback pattern
-        // URN:     cap:op=generate_thumbnail;out="media:binary"
-        // Request: cap:op=generate_thumbnail;out="media:binary";ext=wav
-        // Result:  MATCH (URN has implicit ext=*)
-        let urn = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary""#).unwrap();
-        let request = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary";ext=wav"#).unwrap();
-        assert!(urn.matches(&request).unwrap(), "Test 7: Fallback pattern should match (URN missing ext = implicit wildcard)");
+    fn test_matching_semantics_test7_pattern_has_extra_tag() {
+        // Test 7: Pattern has extra tag that instance doesn't have
+        // Instance: cap:op=generate_thumbnail;out="media:binary"
+        // Pattern:  cap:op=generate_thumbnail;out="media:binary";ext=wav
+        // Result:   NO MATCH (pattern requires ext=wav, instance doesn't have ext)
+        //
+        // NEW SEMANTICS: Pattern K=v requires instance to have K=v
+        let instance = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary""#).unwrap();
+        let pattern = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary";ext=wav"#).unwrap();
+        assert!(!instance.matches(&pattern).unwrap(), "Test 7: Instance missing ext should NOT match when pattern requires ext=wav");
+
+        // Instance vs pattern that doesn't constrain ext: MATCH
+        let pattern_no_ext = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary""#).unwrap();
+        assert!(instance.matches(&pattern_no_ext).unwrap());
     }
 
     #[test]
-    fn test_matching_semantics_test8_empty_urn_matches_anything() {
-        // Test 8: Empty URN matches anything
-        // URN:     cap:
-        // Request: cap:op=generate;ext=pdf
-        // Result:  MATCH
-        let urn = TaggedUrn::from_string("cap:").unwrap();
-        let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(urn.matches(&request).unwrap(), "Test 8: Empty URN should match anything");
+    fn test_matching_semantics_test8_empty_pattern_matches_anything() {
+        // Test 8: Empty PATTERN matches any INSTANCE
+        // Instance: cap:op=generate;ext=pdf
+        // Pattern:  cap:
+        // Result:   MATCH (pattern has no constraints)
+        //
+        // NEW SEMANTICS: Empty pattern = no constraints = matches any instance
+        // But empty instance only matches patterns that don't require tags
+        let instance = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let empty_pattern = TaggedUrn::from_string("cap:").unwrap();
+        assert!(instance.matches(&empty_pattern).unwrap(), "Test 8: Any instance should match empty pattern");
+
+        // Empty instance vs pattern with requirements: NO MATCH
+        let empty_instance = TaggedUrn::from_string("cap:").unwrap();
+        let pattern = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        assert!(!empty_instance.matches(&pattern).unwrap(), "Empty instance should NOT match pattern with requirements");
     }
 
     #[test]
-    fn test_matching_semantics_test9_cross_dimension_independence() {
-        // Test 9: Cross-dimension independence
-        // URN:     cap:op=generate
-        // Request: cap:ext=pdf
-        // Result:  MATCH (both have implicit wildcards for missing tags)
-        let urn = TaggedUrn::from_string("cap:op=generate").unwrap();
-        let request = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(urn.matches(&request).unwrap(), "Test 9: Cross-dimension independence should match");
+    fn test_matching_semantics_test9_cross_dimension_constraints() {
+        // Test 9: Cross-dimension constraints
+        // Instance: cap:op=generate
+        // Pattern:  cap:ext=pdf
+        // Result:   NO MATCH (pattern requires ext=pdf, instance doesn't have ext)
+        //
+        // NEW SEMANTICS: Pattern K=v requires instance to have K=v
+        let instance = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let pattern = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        assert!(!instance.matches(&pattern).unwrap(), "Test 9: Instance without ext should NOT match pattern requiring ext");
+
+        // Instance with ext vs pattern with different tag only: MATCH
+        let instance2 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let pattern2 = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        assert!(instance2.matches(&pattern2).unwrap(), "Instance with ext=pdf should match pattern requiring ext=pdf");
     }
 
     #[test]
@@ -1527,29 +1738,36 @@ mod tests {
     }
 
     #[test]
-    fn test_valueless_tag_in_request() {
-        // Request with value-less tag matches any URN value
-        let request = TaggedUrn::from_string("cap:op=generate;ext").unwrap();
+    fn test_valueless_tag_in_pattern() {
+        // Pattern with value-less tag (K=*) requires instance to have the tag
+        let pattern = TaggedUrn::from_string("cap:op=generate;ext").unwrap();
 
-        let urn_pdf = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        let urn_docx = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
-        let urn_missing = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let instance_pdf = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let instance_docx = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
+        let instance_missing = TaggedUrn::from_string("cap:op=generate").unwrap();
 
-        assert!(urn_pdf.matches(&request).unwrap());
-        assert!(urn_docx.matches(&request).unwrap());
-        assert!(urn_missing.matches(&request).unwrap()); // Missing = implicit wildcard
+        // NEW SEMANTICS: K=* (valueless tag) means must-have-any
+        assert!(instance_pdf.matches(&pattern).unwrap()); // Has ext=pdf
+        assert!(instance_docx.matches(&pattern).unwrap()); // Has ext=docx
+        assert!(!instance_missing.matches(&pattern).unwrap()); // Missing ext, pattern requires it
+
+        // To accept missing ext, use ? instead
+        let pattern_optional = TaggedUrn::from_string("cap:op=generate;ext=?").unwrap();
+        assert!(instance_missing.matches(&pattern_optional).unwrap());
     }
 
     #[test]
     fn test_valueless_tag_specificity() {
-        // Value-less tags (wildcards) don't count towards specificity
+        // NEW GRADED SPECIFICITY:
+        // K=v (exact): 3, K=* (must-have-any): 2, K=! (must-not): 1, K=? (unspecified): 0
+
         let urn1 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        let urn2 = TaggedUrn::from_string("cap:op=generate;optimize").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:op=generate;optimize").unwrap(); // optimize = *
         let urn3 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
 
-        assert_eq!(urn1.specificity(), 1);
-        assert_eq!(urn2.specificity(), 1); // optimize is wildcard, doesn't count
-        assert_eq!(urn3.specificity(), 2);
+        assert_eq!(urn1.specificity(), 3);  // 1 exact = 3
+        assert_eq!(urn2.specificity(), 5);  // 1 exact + 1 * = 3 + 2 = 5
+        assert_eq!(urn3.specificity(), 6);  // 2 exact = 3 + 3 = 6
     }
 
     #[test]
@@ -1598,5 +1816,243 @@ mod tests {
         // Purely numeric keys are still rejected for value-less tags
         assert!(TaggedUrn::from_string("cap:123").is_err());
         assert!(TaggedUrn::from_string("cap:op=generate;456").is_err());
+    }
+
+    // ============================================================================
+    // NEW SEMANTICS TESTS: ? (unspecified) and ! (must-not-have)
+    // ============================================================================
+
+    #[test]
+    fn test_unspecified_question_mark_parsing() {
+        // ? parses as unspecified
+        let urn = TaggedUrn::from_string("cap:ext=?").unwrap();
+        assert_eq!(urn.get_tag("ext"), Some(&"?".to_string()));
+        // Serializes as key=?
+        assert_eq!(urn.to_string(), "cap:ext=?");
+    }
+
+    #[test]
+    fn test_must_not_have_exclamation_parsing() {
+        // ! parses as must-not-have
+        let urn = TaggedUrn::from_string("cap:ext=!").unwrap();
+        assert_eq!(urn.get_tag("ext"), Some(&"!".to_string()));
+        // Serializes as key=!
+        assert_eq!(urn.to_string(), "cap:ext=!");
+    }
+
+    #[test]
+    fn test_question_mark_pattern_matches_anything() {
+        // Pattern with K=? matches any instance (with or without K)
+        let pattern = TaggedUrn::from_string("cap:ext=?").unwrap();
+
+        let instance_pdf = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        let instance_docx = TaggedUrn::from_string("cap:ext=docx").unwrap();
+        let instance_missing = TaggedUrn::from_string("cap:").unwrap();
+        let instance_wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
+        let instance_must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
+
+        assert!(instance_pdf.matches(&pattern).unwrap(), "ext=pdf should match ext=?");
+        assert!(instance_docx.matches(&pattern).unwrap(), "ext=docx should match ext=?");
+        assert!(instance_missing.matches(&pattern).unwrap(), "(no ext) should match ext=?");
+        assert!(instance_wildcard.matches(&pattern).unwrap(), "ext=* should match ext=?");
+        assert!(instance_must_not.matches(&pattern).unwrap(), "ext=! should match ext=?");
+    }
+
+    #[test]
+    fn test_question_mark_in_instance() {
+        // Instance with K=? matches any pattern constraint
+        let instance = TaggedUrn::from_string("cap:ext=?").unwrap();
+
+        let pattern_pdf = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        let pattern_wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
+        let pattern_must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
+        let pattern_question = TaggedUrn::from_string("cap:ext=?").unwrap();
+        let pattern_missing = TaggedUrn::from_string("cap:").unwrap();
+
+        assert!(instance.matches(&pattern_pdf).unwrap(), "ext=? should match ext=pdf");
+        assert!(instance.matches(&pattern_wildcard).unwrap(), "ext=? should match ext=*");
+        assert!(instance.matches(&pattern_must_not).unwrap(), "ext=? should match ext=!");
+        assert!(instance.matches(&pattern_question).unwrap(), "ext=? should match ext=?");
+        assert!(instance.matches(&pattern_missing).unwrap(), "ext=? should match (no ext)");
+    }
+
+    #[test]
+    fn test_must_not_have_pattern_requires_absent() {
+        // Pattern with K=! requires instance to NOT have K
+        let pattern = TaggedUrn::from_string("cap:ext=!").unwrap();
+
+        let instance_missing = TaggedUrn::from_string("cap:").unwrap();
+        let instance_pdf = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        let instance_wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
+        let instance_must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
+
+        assert!(instance_missing.matches(&pattern).unwrap(), "(no ext) should match ext=!");
+        assert!(!instance_pdf.matches(&pattern).unwrap(), "ext=pdf should NOT match ext=!");
+        assert!(!instance_wildcard.matches(&pattern).unwrap(), "ext=* should NOT match ext=!");
+        assert!(instance_must_not.matches(&pattern).unwrap(), "ext=! should match ext=!");
+    }
+
+    #[test]
+    fn test_must_not_have_in_instance() {
+        // Instance with K=! conflicts with patterns requiring K
+        let instance = TaggedUrn::from_string("cap:ext=!").unwrap();
+
+        let pattern_pdf = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        let pattern_wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
+        let pattern_must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
+        let pattern_question = TaggedUrn::from_string("cap:ext=?").unwrap();
+        let pattern_missing = TaggedUrn::from_string("cap:").unwrap();
+
+        assert!(!instance.matches(&pattern_pdf).unwrap(), "ext=! should NOT match ext=pdf");
+        assert!(!instance.matches(&pattern_wildcard).unwrap(), "ext=! should NOT match ext=*");
+        assert!(instance.matches(&pattern_must_not).unwrap(), "ext=! should match ext=!");
+        assert!(instance.matches(&pattern_question).unwrap(), "ext=! should match ext=?");
+        assert!(instance.matches(&pattern_missing).unwrap(), "ext=! should match (no ext)");
+    }
+
+    #[test]
+    fn test_full_cross_product_matching() {
+        // Comprehensive test of all instance/pattern combinations
+        // Based on the truth table in the plan
+
+        // Helper to test a single case
+        fn check(instance: &str, pattern: &str, expected: bool, msg: &str) {
+            let inst = TaggedUrn::from_string(instance).unwrap();
+            let patt = TaggedUrn::from_string(pattern).unwrap();
+            assert_eq!(
+                inst.matches(&patt).unwrap(),
+                expected,
+                "{}: instance={}, pattern={}",
+                msg,
+                instance,
+                pattern
+            );
+        }
+
+        // Instance missing, Pattern variations
+        check("cap:", "cap:", true, "(none)/(none)");
+        check("cap:", "cap:k=?", true, "(none)/K=?");
+        check("cap:", "cap:k=!", true, "(none)/K=!");
+        check("cap:", "cap:k", false, "(none)/K=*");  // K is valueless = *
+        check("cap:", "cap:k=v", false, "(none)/K=v");
+
+        // Instance K=?, Pattern variations
+        check("cap:k=?", "cap:", true, "K=?/(none)");
+        check("cap:k=?", "cap:k=?", true, "K=?/K=?");
+        check("cap:k=?", "cap:k=!", true, "K=?/K=!");
+        check("cap:k=?", "cap:k", true, "K=?/K=*");
+        check("cap:k=?", "cap:k=v", true, "K=?/K=v");
+
+        // Instance K=!, Pattern variations
+        check("cap:k=!", "cap:", true, "K=!/(none)");
+        check("cap:k=!", "cap:k=?", true, "K=!/K=?");
+        check("cap:k=!", "cap:k=!", true, "K=!/K=!");
+        check("cap:k=!", "cap:k", false, "K=!/K=*");
+        check("cap:k=!", "cap:k=v", false, "K=!/K=v");
+
+        // Instance K=*, Pattern variations
+        check("cap:k", "cap:", true, "K=*/(none)");
+        check("cap:k", "cap:k=?", true, "K=*/K=?");
+        check("cap:k", "cap:k=!", false, "K=*/K=!");
+        check("cap:k", "cap:k", true, "K=*/K=*");
+        check("cap:k", "cap:k=v", true, "K=*/K=v");
+
+        // Instance K=v, Pattern variations
+        check("cap:k=v", "cap:", true, "K=v/(none)");
+        check("cap:k=v", "cap:k=?", true, "K=v/K=?");
+        check("cap:k=v", "cap:k=!", false, "K=v/K=!");
+        check("cap:k=v", "cap:k", true, "K=v/K=*");
+        check("cap:k=v", "cap:k=v", true, "K=v/K=v");
+        check("cap:k=v", "cap:k=w", false, "K=v/K=w");
+    }
+
+    #[test]
+    fn test_mixed_special_values() {
+        // Test URNs with multiple special values
+        let pattern = TaggedUrn::from_string("cap:required;optional=?;forbidden=!;exact=pdf").unwrap();
+
+        // Instance that satisfies all constraints
+        let good_instance = TaggedUrn::from_string("cap:required=yes;optional=maybe;exact=pdf").unwrap();
+        assert!(good_instance.matches(&pattern).unwrap());
+
+        // Instance missing required tag
+        let missing_required = TaggedUrn::from_string("cap:optional=maybe;exact=pdf").unwrap();
+        assert!(!missing_required.matches(&pattern).unwrap());
+
+        // Instance has forbidden tag
+        let has_forbidden = TaggedUrn::from_string("cap:required=yes;forbidden=oops;exact=pdf").unwrap();
+        assert!(!has_forbidden.matches(&pattern).unwrap());
+
+        // Instance with wrong exact value
+        let wrong_exact = TaggedUrn::from_string("cap:required=yes;exact=doc").unwrap();
+        assert!(!wrong_exact.matches(&pattern).unwrap());
+    }
+
+    #[test]
+    fn test_serialization_round_trip_special_values() {
+        // All special values round-trip correctly
+        let originals = [
+            "cap:ext=?",
+            "cap:ext=!",
+            "cap:ext",  // * serializes as valueless
+            "cap:a=?;b=!;c;d=exact",
+        ];
+
+        for original in originals {
+            let urn = TaggedUrn::from_string(original).unwrap();
+            let serialized = urn.to_string();
+            let reparsed = TaggedUrn::from_string(&serialized).unwrap();
+            assert_eq!(urn, reparsed, "Round-trip failed for: {}", original);
+        }
+    }
+
+    #[test]
+    fn test_compatibility_with_special_values() {
+        // ! is incompatible with * and specific values
+        let must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
+        let must_have = TaggedUrn::from_string("cap:ext=*").unwrap();
+        let specific = TaggedUrn::from_string("cap:ext=pdf").unwrap();
+        let unspecified = TaggedUrn::from_string("cap:ext=?").unwrap();
+        let missing = TaggedUrn::from_string("cap:").unwrap();
+
+        assert!(!must_not.is_compatible_with(&must_have).unwrap());
+        assert!(!must_not.is_compatible_with(&specific).unwrap());
+        assert!(must_not.is_compatible_with(&unspecified).unwrap());
+        assert!(must_not.is_compatible_with(&missing).unwrap());
+        assert!(must_not.is_compatible_with(&must_not).unwrap());
+
+        // * is compatible with specific values
+        assert!(must_have.is_compatible_with(&specific).unwrap());
+        assert!(must_have.is_compatible_with(&must_have).unwrap());
+
+        // ? is compatible with everything
+        assert!(unspecified.is_compatible_with(&must_not).unwrap());
+        assert!(unspecified.is_compatible_with(&must_have).unwrap());
+        assert!(unspecified.is_compatible_with(&specific).unwrap());
+        assert!(unspecified.is_compatible_with(&unspecified).unwrap());
+        assert!(unspecified.is_compatible_with(&missing).unwrap());
+    }
+
+    #[test]
+    fn test_specificity_with_special_values() {
+        // Verify graded specificity scoring
+        let exact = TaggedUrn::from_string("cap:a=x;b=y;c=z").unwrap(); // 3*3 = 9
+        let must_have = TaggedUrn::from_string("cap:a;b;c").unwrap(); // 3*2 = 6
+        let must_not = TaggedUrn::from_string("cap:a=!;b=!;c=!").unwrap(); // 3*1 = 3
+        let unspecified = TaggedUrn::from_string("cap:a=?;b=?;c=?").unwrap(); // 3*0 = 0
+        let mixed = TaggedUrn::from_string("cap:a=x;b;c=!;d=?").unwrap(); // 3+2+1+0 = 6
+
+        assert_eq!(exact.specificity(), 9);
+        assert_eq!(must_have.specificity(), 6);
+        assert_eq!(must_not.specificity(), 3);
+        assert_eq!(unspecified.specificity(), 0);
+        assert_eq!(mixed.specificity(), 6);
+
+        // Test specificity tuples
+        assert_eq!(exact.specificity_tuple(), (3, 0, 0));
+        assert_eq!(must_have.specificity_tuple(), (0, 3, 0));
+        assert_eq!(must_not.specificity_tuple(), (0, 0, 3));
+        assert_eq!(unspecified.specificity_tuple(), (0, 0, 0));
+        assert_eq!(mixed.specificity_tuple(), (1, 1, 1));
     }
 }
