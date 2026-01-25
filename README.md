@@ -1,19 +1,19 @@
 # Tagged URN - Rust Implementation
 
-A tagged URN system with flat tag-based naming, wildcard support, and specificity comparison.
+A tagged URN system with flat tag-based naming, pattern matching, and specificity comparison.
 
 ## Overview
 
-Tagged URN provides a formal system for tag-based identifiers with matching and comparison capabilities. It uses a flat key-value tag format that supports wildcards, specificity ranking, and flexible matching.
+Tagged URN provides a formal system for tag-based identifiers with matching and comparison capabilities. It uses a flat key-value tag format that supports special pattern values, graded specificity ranking, and symmetric matching.
 
 ## Features
 
 - **Flat Tag Format** - Simple `key=value` pairs separated by semicolons
-- **Value-less Tags** - Tags without values (`tag`) are wildcards (`tag=*`)
+- **Special Pattern Values** - `*` (must-have-any), `?` (unspecified), `!` (must-not-have)
+- **Value-less Tags** - Tags without values (`tag`) are must-have-any (`tag=*`)
 - **Case Insensitive** - All input normalized to lowercase (except quoted values)
 - **Tag Order Independent** - Canonical alphabetical sorting
-- **Wildcard Support** - `*` matching in values only
-- **Specificity Comparison** - More specific URNs are preferred
+- **Graded Specificity** - Exact values score higher than wildcards
 - **Smart Quoting** - Automatic quoting for special characters and case preservation
 
 ## Format
@@ -27,17 +27,22 @@ cap:image;format=png;quality=high
 cap:op=generate;target=thumbnail;output=binary
 ```
 
-**Wildcards:**
-- Use `*` to match any value: `cap:op=extract;format=*`
-- Wildcards enable flexible matching
+**Special Values:**
+| Value | Meaning | Example |
+|-------|---------|---------|
+| `K=v` | Must have key K with exact value v | `format=pdf` |
+| `K=*` | Must have key K with any value | `format=*` |
+| `K=!` | Must NOT have key K | `debug=!` |
+| `K=?` | No constraint on key K | `format=?` |
+| (missing) | No constraint (same as `?`) | |
 
 **Value-less Tags:**
-- Tags without values are wildcards: `cap:op=extract;optimize` equals `cap:op=extract;optimize=*`
-- Useful as flags or existence checks: `cap:premium;feature=export`
+- Tags without values mean must-have-any: `cap:op=extract;optimize` equals `cap:op=extract;optimize=*`
+- Useful for asserting tag presence: `cap:premium;feature=export`
 
 **Specificity:**
-- More specific URNs are preferred over general ones
-- `cap:op=extract;ext=pdf` is more specific than `cap:op=extract`
+- Graded scoring: exact value (3) > must-have-any (2) > must-not-have (1) > unspecified (0)
+- `cap:op=extract;ext=pdf` (specificity 6) is more specific than `cap:op=extract;ext=*` (specificity 5)
 
 ## Usage
 

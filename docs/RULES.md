@@ -25,7 +25,7 @@ Presence or absence of the final trailing semicolon does not matter. Both `cap:k
 
 **Unquoted values:**
 - Allowed characters in tag keys: alphanumeric, dashes (`-`), underscores (`_`), slashes (`/`), colons (`:`), dots (`.`)
-- Allowed characters in unquoted values: same as keys plus asterisk (`*` for wildcards)
+- Allowed characters in unquoted values: same as keys plus special pattern characters (`*`, `?`, `!`)
 - No spaces, quotes, semicolons, equals signs, or backslashes in unquoted values
 
 **Quoted values:**
@@ -58,119 +58,187 @@ No reserved tag names - anything goes for tag keys.
   - `{key: "Has Upper"}` serializes to `cap:key="Has Upper"`
   - `{key: "has;special"}` serializes to `cap:key="has;special"`
 
-### 10. Wildcard Support
-- Wildcard `*` is accepted only as tag value, not as tag key
-- When used as a tag value, `*` matches any value for that tag key (see Matching Semantics below)
+### 10. Special Pattern Values
+The following special values control matching behavior:
 
-### 11. Value-less Tags (Existence Assertion)
+| Value | Name | Meaning |
+|-------|------|---------|
+| `K=v` | Exact value | Must have key K with exact value v |
+| `K=*` | Must-have-any | Must have key K with any value (presence required) |
+| `K=!` | Must-not-have | Must NOT have key K (absence required) |
+| `K=?` | Unspecified | No constraint on key K (explicit don't-care) |
+| (missing) | No constraint | Same as `K=?` - key doesn't participate in matching |
+
+- Special values `*`, `?`, and `!` are accepted only in tag values, not keys
+- These values work symmetrically on both instance and pattern sides
+
+### 11. Value-less Tags (Must-Have-Any)
 - Tags may be specified without a value: `cap:key1=value1;optimize;key2=value2`
-- A value-less tag like `optimize` is equivalent to `optimize=*` (wildcard)
-- This asserts that the tag exists but matches any value
-- Value-less tags are useful as flags or for checking tag existence
+- A value-less tag like `optimize` is equivalent to `optimize=*` (must-have-any)
+- This asserts that the tag MUST be present (with any value)
 - **Parsing:** `tag` (no `=`) is parsed as `tag=*`
 - **Serialization:** `tag=*` is serialized as just `tag` (no `=*`)
-- **Note:** `tag=` (explicit `=` with no value) is still an error - this is different from a value-less tag
+- **Note:** `tag=` (explicit `=` with no value) is still an error
 
 ## Matching Semantics (CRITICAL)
 
 This section defines how Tagged URN matching works when comparing URNs. This is the core algorithm that ALL implementations MUST follow exactly.
 
-### 12. Missing Tags as Implicit Wildcards
-A missing tag is semantically equivalent to `tag=*`. This means:
-- `cap:op=generate` is equivalent to `cap:op=generate;ext=*;in=*;out=*;...` for all possible tags
-- A URN with fewer tags can match requests with more tags (the URN can handle "any" value for missing dimensions)
+### 12. Per-Tag Value Matching
 
-### 13. The `matches(urn, request)` Function
-Given a **URN** (what is being offered) and a **request** (what is being asked for), the URN matches the request if and only if:
+Matching is symmetric - special values work the same on both instance and pattern sides.
 
-**Step 1: Check all tags in the REQUEST**
-For each `(key, value)` in request.tags:
-- If URN has the same key:
-  - If URN's value is `*` → OK (URN can handle any value)
-  - If request's value is `*` → OK (request accepts any value)
-  - If URN's value equals request's value → OK
-  - Otherwise → NO MATCH
-- If URN is missing this key → OK (missing = implicit `*`, URN can handle any value)
+**Truth Table:**
+| Instance | Pattern | Match? | Reason |
+|----------|---------|--------|--------|
+| (none) | (none) | OK | No constraint either side |
+| (none) | K=? | OK | Pattern doesn't care |
+| (none) | K=! | OK | Pattern wants absent, it is |
+| (none) | K=* | NO | Pattern wants present |
+| (none) | K=v | NO | Pattern wants exact value |
+| K=? | (any) | OK | Instance doesn't care |
+| K=! | (none) | OK | Symmetric: both absent |
+| K=! | K=? | OK | Pattern doesn't care |
+| K=! | K=! | OK | Both want absent |
+| K=! | K=* | NO | Conflict: absent vs present |
+| K=! | K=v | NO | Conflict: absent vs value |
+| K=* | (none) | OK | Pattern has no constraint |
+| K=* | K=? | OK | Pattern doesn't care |
+| K=* | K=! | NO | Conflict: present vs absent |
+| K=* | K=* | OK | Both accept any presence |
+| K=* | K=v | OK | Instance accepts any, v is fine |
+| K=v | (none) | OK | Pattern has no constraint |
+| K=v | K=? | OK | Pattern doesn't care |
+| K=v | K=! | NO | Conflict: value vs absent |
+| K=v | K=* | OK | Pattern wants any, v satisfies |
+| K=v | K=v | OK | Exact match |
+| K=v | K=w | NO | Value mismatch (v≠w) |
 
-**Step 2: Check all tags in the URN that request doesn't have**
-For each `(key, value)` in urn.tags where request doesn't have this key:
-- This is fine - the URN is just more specific than needed
-- The request "doesn't care" about this dimension, so any value is acceptable
+### 13. The `matches(instance, pattern)` Function
+Given an **instance** and a **pattern**, the instance matches the pattern if and only if:
 
-**Result:** If all checks pass, the URN matches the request.
+1. Collect all keys from both instance and pattern
+2. For each key, check if the values match using the truth table above
+3. If all keys match, return true; otherwise return false
+
+```rust
+pub fn matches(&self, pattern: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+    // Prefixes must match
+    if self.prefix != pattern.prefix {
+        return Err(TaggedUrnError::PrefixMismatch { ... });
+    }
+
+    // Check all keys from both sides
+    let all_keys: HashSet<&String> = self.tags.keys()
+        .chain(pattern.tags.keys())
+        .collect();
+
+    for key in all_keys {
+        let inst = self.tags.get(key).map(|s| s.as_str());
+        let patt = pattern.tags.get(key).map(|s| s.as_str());
+
+        if !values_match(inst, patt) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+```
 
 ### 14. Matching Examples
 
 ```
-# Example 1: Basic matching
-URN:     cap:op=generate;ext=pdf
-Request: cap:op=generate;ext=pdf
-Result:  MATCH (exact match)
+# Example 1: Exact match
+Instance: cap:op=generate;ext=pdf
+Pattern:  cap:op=generate;ext=pdf
+Result:   MATCH
 
-# Example 2: URN can handle any ext
-URN:     cap:op=generate           (missing ext = implicit ext=*)
-Request: cap:op=generate;ext=pdf
-Result:  MATCH (URN can handle any ext, including pdf)
+# Example 2: Pattern has no constraint on ext
+Instance: cap:op=generate;ext=pdf
+Pattern:  cap:op=generate
+Result:   MATCH (missing tag = no constraint)
 
-# Example 3: URN is more specific than needed
-URN:     cap:op=generate;ext=pdf;version=2
-Request: cap:op=generate;ext=pdf
-Result:  MATCH (request doesn't care about version)
+# Example 3: Instance has extra tags
+Instance: cap:op=generate;ext=pdf;version=2
+Pattern:  cap:op=generate;ext=pdf
+Result:   MATCH (pattern doesn't constrain version)
 
-# Example 4: Request uses wildcard
-URN:     cap:op=generate;ext=pdf
-Request: cap:op=generate;ext=*
-Result:  MATCH (request accepts any ext, pdf is acceptable)
+# Example 4: Pattern uses must-have-any
+Instance: cap:op=generate;ext=pdf
+Pattern:  cap:op=generate;ext=*
+Result:   MATCH (instance has ext, pattern just wants any ext)
 
 # Example 5: Value mismatch
-URN:     cap:op=generate;ext=pdf
-Request: cap:op=generate;ext=docx
-Result:  NO MATCH (pdf ≠ docx)
+Instance: cap:op=generate;ext=pdf
+Pattern:  cap:op=generate;ext=docx
+Result:   NO MATCH (pdf ≠ docx)
 
-# Example 6: Fallback pattern
-URN:     cap:op=generate_thumbnail;out=binary   (no ext)
-Request: cap:op=generate_thumbnail;out=binary;ext=wav
-Result:  MATCH (URN can handle any ext including wav)
+# Example 6: Must-not-have satisfied
+Instance: cap:op=generate
+Pattern:  cap:op=generate;debug=!
+Result:   MATCH (instance lacks debug, pattern wants it absent)
 
-# Example 7: Value-less tag (wildcard)
-URN:     cap:op=generate;ext              (ext is value-less = ext=*)
-Request: cap:op=generate;ext=pdf
-Result:  MATCH (value-less tag matches any value)
+# Example 7: Must-not-have violated
+Instance: cap:op=generate;debug=true
+Pattern:  cap:op=generate;debug=!
+Result:   NO MATCH (instance has debug, pattern wants it absent)
 
-# Example 8: Value-less tag in request
-URN:     cap:op=generate;ext=pdf
-Request: cap:op=generate;ext              (ext is value-less = ext=*)
-Result:  MATCH (request accepts any ext value)
+# Example 8: Must-have-any not satisfied
+Instance: cap:op=generate
+Pattern:  cap:op=generate;ext=*
+Result:   NO MATCH (instance lacks ext, pattern requires it)
 
-# Example 9: Mixed value-less and valued tags
-URN:     cap:op=generate;optimize;ext=pdf   (optimize is value-less)
-Request: cap:op=generate;ext=pdf
-Result:  MATCH (request doesn't constrain optimize)
+# Example 9: Explicit unspecified
+Instance: cap:op=generate;ext=pdf
+Pattern:  cap:op=generate;ext=?
+Result:   MATCH (pattern explicitly doesn't care about ext)
+
+# Example 10: Value-less tag (must-have-any)
+Instance: cap:op=generate;ext=pdf
+Pattern:  cap:op=generate;ext           (ext = ext=*)
+Result:   MATCH (instance has ext with value)
 ```
 
-### 15. Specificity for Best Match Selection
-When multiple URNs match a request, select the one with highest specificity:
-- Specificity = count of non-wildcard tags
-- `cap:op=generate;ext=pdf` has specificity 2
-- `cap:op=generate;ext=*` has specificity 1 (wildcard doesn't count)
-- `cap:op=generate;ext` has specificity 1 (value-less tag = wildcard, doesn't count)
-- `cap:op=generate` has specificity 1
-- Higher specificity wins
+### 15. Graded Specificity
+When multiple URNs match a request, select the one with highest specificity using graded scoring:
+
+| Value Type | Score | Example |
+|------------|-------|---------|
+| Exact value (K=v) | 3 | `ext=pdf` |
+| Must-have-any (K=*) | 2 | `ext=*` or `ext` |
+| Must-not-have (K=!) | 1 | `debug=!` |
+| Unspecified (K=?) | 0 | `ext=?` or missing |
+
+**Total specificity** = sum of all tag scores
+
+Examples:
+- `cap:op=generate;ext=pdf` → 3 + 3 = 6
+- `cap:op=generate;ext=*` → 3 + 2 = 5
+- `cap:op=generate;ext` → 3 + 2 = 5 (value-less = must-have-any)
+- `cap:op=generate` → 3
+
+**Tie-breaking:** Compare tuples `(exact_count, must_have_any_count, must_not_count)` lexicographically.
 
 ### 16. Selection Algorithm
 1. Collect all URNs that match the request
-2. Select the one with highest specificity
-3. If tie, implementation-defined (typically first registered wins)
+2. Calculate graded specificity for each
+3. Select the one with highest specificity
+4. If tie, use specificity tuple; if still tied, first registered wins
 
-### 17. Key Insight: Asymmetric Matching
-The matching is intentionally asymmetric:
-- A URN with FEWER tags (more general) can match requests with MORE tags
-- A URN with MORE tags (more specific) can also match requests with FEWER tags (request doesn't constrain those dimensions)
+### 17. Symmetric Matching
+The matching is symmetric - special values work the same on both sides:
 
-This enables the fallback pattern:
-- Specific URN: `cap:op=generate_thumbnail;ext=pdf` (only handles PDF)
-- Fallback URN: `cap:op=generate_thumbnail` (handles any ext)
-- Request for `ext=wav` → specific URN doesn't match, fallback does
+**Instance with wildcards:**
+```
+Instance: cap:ext=*        Pattern: cap:ext=pdf    → MATCH (instance accepts any)
+Instance: cap:ext=*        Pattern: cap:ext=!      → NO MATCH (conflict: present vs absent)
+```
+
+**Instance with must-not-have:**
+```
+Instance: cap:debug=!      Pattern: cap:debug=!    → MATCH (both want absent)
+Instance: cap:debug=!      Pattern: cap:debug=true → NO MATCH (conflict: absent vs value)
+```
 
 ### 18. Duplicate Keys
 Duplicate keys in the same URN result in an error - last occurrence does not win.
@@ -183,13 +251,13 @@ Full UTF-8 character support within the allowed character set restrictions.
 - Tag values can be pure numeric
 
 ### 21. Empty Tagged URN
-`cap:` with no tags is valid and means "matches all URNs" (universal matcher).
+`cap:` with no tags is valid and represents no constraints (matches any URN with the same prefix).
 
 ### 22. Length Restrictions
 No explicit length restrictions, though practical limits exist based on URL and system constraints (typically ~2000 characters).
 
-### 23. Wildcard Restrictions
-Asterisk (`*`) in tag keys is not valid. Asterisk is only valid in tag values to signify wildcard matching.
+### 23. Special Value Restrictions
+Special pattern characters (`*`, `?`, `!`) are only valid in tag values, not in tag keys. These characters have specific matching semantics and cannot be used as literal values without quoting.
 
 ### 24. Colon Treatment
 Forward slashes (`/`) and colons (`:`) are valid anywhere in tag components and treated as normal characters, except for the mandatory `cap:` prefix which is not part of the tag structure.
@@ -214,12 +282,15 @@ Forward slashes (`/`) and colons (`:`) are valid anywhere in tag components and 
 - All implementations must sort tags alphabetically in canonical output
 - All implementations must handle trailing semicolons consistently
 - All implementations must validate character restrictions identically
-- All implementations must implement matching logic identically
+- All implementations must implement matching logic identically per the truth table
 - All implementations must reject duplicate keys with appropriate error messages
 - All implementations must use state-machine parsing for quoted value support
 - All implementations must implement smart quoting on serialization
-- All implementations must parse value-less tags as wildcard (`tag` → `tag=*`)
-- All implementations must serialize wildcard tags as value-less (`tag=*` → `tag`)
+- All implementations must parse value-less tags as must-have-any (`tag` → `tag=*`)
+- All implementations must serialize must-have-any tags as value-less (`tag=*` → `tag`)
+- All implementations must serialize `?` and `!` explicitly (`tag=?`, `tag=!`)
+- All implementations must implement graded specificity scoring
+- All implementations must allow `?` and `!` as unquoted values
 
 ## Error Codes (Consistent Across All Implementations)
 
