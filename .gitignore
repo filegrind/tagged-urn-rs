@@ -78,3 +78,5 @@ flame.svg
 *.log
 *.backup
 .scrap/
+
+.ws/
