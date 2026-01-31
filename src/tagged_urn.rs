@@ -75,6 +75,11 @@ impl TaggedUrn {
     /// - Unquoted values: Normalized to lowercase
     /// - Quoted values: Case preserved exactly as specified
     pub fn from_string(s: &str) -> Result<Self, TaggedUrnError> {
+        // Fail hard on leading/trailing whitespace
+        if s != s.trim() {
+            return Err(TaggedUrnError::WhitespaceInInput(s.to_string()));
+        }
+
         if s.is_empty() {
             return Err(TaggedUrnError::Empty);
         }
@@ -707,6 +712,8 @@ pub enum TaggedUrnError {
     InvalidEscapeSequence(usize),
     /// Error code 11: Prefix mismatch when comparing URNs from different domains
     PrefixMismatch { expected: String, actual: String },
+    /// Error code 12: Input has leading or trailing whitespace
+    WhitespaceInInput(String),
 }
 
 impl fmt::Display for TaggedUrnError {
@@ -751,6 +758,13 @@ impl fmt::Display for TaggedUrnError {
                     f,
                     "Cannot compare URNs with different prefixes: '{}' vs '{}'",
                     expected, actual
+                )
+            }
+            TaggedUrnError::WhitespaceInInput(input) => {
+                write!(
+                    f,
+                    "Tagged URN has leading or trailing whitespace: '{}'",
+                    input
                 )
             }
         }
@@ -1816,6 +1830,43 @@ mod tests {
         // Purely numeric keys are still rejected for value-less tags
         assert!(TaggedUrn::from_string("cap:123").is_err());
         assert!(TaggedUrn::from_string("cap:op=generate;456").is_err());
+    }
+
+    #[test]
+    fn test_whitespace_in_input_rejected() {
+        // Leading whitespace fails hard
+        let result = TaggedUrn::from_string(" cap:op=test");
+        assert!(result.is_err());
+        if let Err(TaggedUrnError::WhitespaceInInput(_)) = result {
+            // Expected
+        } else {
+            panic!("Expected WhitespaceInInput error, got {:?}", result);
+        }
+
+        // Trailing whitespace fails hard
+        let result = TaggedUrn::from_string("cap:op=test ");
+        assert!(result.is_err());
+        if let Err(TaggedUrnError::WhitespaceInInput(_)) = result {
+            // Expected
+        } else {
+            panic!("Expected WhitespaceInInput error, got {:?}", result);
+        }
+
+        // Both leading and trailing whitespace fails hard
+        let result = TaggedUrn::from_string(" cap:op=test ");
+        assert!(result.is_err());
+        if let Err(TaggedUrnError::WhitespaceInInput(_)) = result {
+            // Expected
+        } else {
+            panic!("Expected WhitespaceInInput error, got {:?}", result);
+        }
+
+        // Tab and newline also count as whitespace
+        assert!(TaggedUrn::from_string("\tcap:op=test").is_err());
+        assert!(TaggedUrn::from_string("cap:op=test\n").is_err());
+
+        // Clean input works
+        assert!(TaggedUrn::from_string("cap:op=test").is_ok());
     }
 
     // ============================================================================
