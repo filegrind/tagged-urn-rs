@@ -9,7 +9,7 @@ version = "1.0"
 [dev-dependencies]
 
 [package]
-authors = ["FileGrind"]
+authors = ["https://github.com/jowharshamshiri"]
 description = "Tagged URN - Flat tag-based identifier system"
 edition = "2021"
 license = "MIT"
