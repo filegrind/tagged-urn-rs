@@ -339,8 +339,12 @@ impl TaggedUrn {
     /// - `*` (must-have-any): serialized as value-less tag (just the key)
     /// - `?` (unspecified): serialized as key=?
     /// - `!` (must-not-have): serialized as key=!
-    pub fn to_string(&self) -> String {
-        let tags_str = self
+    /// Serialize just the tags portion (without prefix)
+    ///
+    /// Returns the tags in canonical form with proper quoting and sorting.
+    /// This is the portion after the ":" in a full URN string.
+    pub fn tags_to_string(&self) -> String {
+        self
             .tags
             .iter()
             .map(|(k, v)| {
@@ -353,7 +357,11 @@ impl TaggedUrn {
                 }
             })
             .collect::<Vec<_>>()
-            .join(";");
+            .join(";")
+    }
+
+    pub fn to_string(&self) -> String {
+        let tags_str = self.tags_to_string();
         format!("{}:{}", self.prefix, tags_str)
     }
 
