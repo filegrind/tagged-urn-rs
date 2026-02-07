@@ -943,6 +943,7 @@ impl TaggedUrnBuilder {
 mod tests {
     use super::*;
 
+    // TEST501: Create tagged URN from string and verify prefix and tag values
     #[test]
     fn test_tagged_urn_creation() {
         let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
@@ -952,6 +953,7 @@ mod tests {
         assert_eq!(urn.get_tag("ext"), Some(&"pdf".to_string()));
     }
 
+    // TEST502: Parse URN with custom prefix and verify serialization
     #[test]
     fn test_custom_prefix() {
         let urn = TaggedUrn::from_string("myapp:op=generate;ext=pdf").unwrap();
@@ -960,6 +962,7 @@ mod tests {
         assert_eq!(urn.to_string(), "myapp:ext=pdf;op=generate");
     }
 
+    // TEST503: Normalize prefix to lowercase regardless of input case
     #[test]
     fn test_prefix_case_insensitive() {
         let urn1 = TaggedUrn::from_string("CAP:op=test").unwrap();
@@ -973,6 +976,7 @@ mod tests {
         assert_eq!(urn2, urn3);
     }
 
+    // TEST504: Return PrefixMismatch error when comparing URNs with different prefixes
     #[test]
     fn test_prefix_mismatch_error() {
         let urn1 = TaggedUrn::from_string("cap:op=test").unwrap();
@@ -990,6 +994,7 @@ mod tests {
         }
     }
 
+    // TEST505: Build URN with custom prefix using TaggedUrnBuilder
     #[test]
     fn test_builder_with_prefix() {
         let urn = TaggedUrnBuilder::new("custom")
@@ -1001,6 +1006,7 @@ mod tests {
         assert_eq!(urn.to_string(), "custom:key=value");
     }
 
+    // TEST506: Normalize unquoted keys and values to lowercase
     #[test]
     fn test_unquoted_values_lowercased() {
         // Unquoted values are normalized to lowercase
@@ -1021,6 +1027,7 @@ mod tests {
         assert_eq!(urn, urn2);
     }
 
+    // TEST507: Preserve original case for quoted values while lowercasing keys
     #[test]
     fn test_quoted_values_preserve_case() {
         // Quoted values preserve their case
@@ -1039,6 +1046,7 @@ mod tests {
         assert_ne!(unquoted, quoted); // NOT equal
     }
 
+    // TEST508: Parse quoted values containing semicolons, equals signs, and spaces
     #[test]
     fn test_quoted_value_special_chars() {
         // Semicolons in quoted values
@@ -1054,6 +1062,7 @@ mod tests {
         assert_eq!(urn3.get_tag("key"), Some(&"hello world".to_string()));
     }
 
+    // TEST509: Parse escape sequences for quotes and backslashes in quoted values
     #[test]
     fn test_quoted_value_escape_sequences() {
         // Escaped quotes
@@ -1069,6 +1078,7 @@ mod tests {
         assert_eq!(urn3.get_tag("key"), Some(&r#"say "hello\world""#.to_string()));
     }
 
+    // TEST510: Parse URN with both quoted and unquoted tag values
     #[test]
     fn test_mixed_quoted_unquoted() {
         let urn = TaggedUrn::from_string(r#"cap:a="Quoted";b=simple"#).unwrap();
@@ -1076,6 +1086,7 @@ mod tests {
         assert_eq!(urn.get_tag("b"), Some(&"simple".to_string()));
     }
 
+    // TEST511: Reject unterminated quoted value with appropriate error
     #[test]
     fn test_unterminated_quote_error() {
         let result = TaggedUrn::from_string(r#"cap:key="unterminated"#);
@@ -1085,6 +1096,7 @@ mod tests {
         }
     }
 
+    // TEST512: Reject invalid escape sequences in quoted values
     #[test]
     fn test_invalid_escape_sequence_error() {
         let result = TaggedUrn::from_string(r#"cap:key="bad\n""#);
@@ -1101,6 +1113,7 @@ mod tests {
         }
     }
 
+    // TEST513: Apply smart quoting during serialization based on value content
     #[test]
     fn test_serialization_smart_quoting() {
         // Simple lowercase value - no quoting needed
@@ -1143,6 +1156,7 @@ mod tests {
         assert_eq!(urn6.to_string(), r#"cap:key="path\\file""#);
     }
 
+    // TEST514: Round-trip parse and serialize a simple URN
     #[test]
     fn test_round_trip_simple() {
         let original = "cap:op=generate;ext=pdf";
@@ -1152,6 +1166,7 @@ mod tests {
         assert_eq!(urn, reparsed);
     }
 
+    // TEST515: Round-trip parse and serialize a URN with quoted values
     #[test]
     fn test_round_trip_quoted() {
         let original = r#"cap:key="Value With Spaces""#;
@@ -1162,6 +1177,7 @@ mod tests {
         assert_eq!(reparsed.get_tag("key"), Some(&"Value With Spaces".to_string()));
     }
 
+    // TEST516: Round-trip parse and serialize a URN with escape sequences
     #[test]
     fn test_round_trip_escapes() {
         let original = r#"cap:key="value\"with\\escapes""#;
@@ -1172,6 +1188,7 @@ mod tests {
         assert_eq!(urn, reparsed);
     }
 
+    // TEST517: Require a prefix in URN string and reject missing prefix
     #[test]
     fn test_prefix_required() {
         // Missing prefix should fail
@@ -1186,6 +1203,7 @@ mod tests {
         assert_eq!(urn2.get_tag("op"), Some(&"generate".to_string()));
     }
 
+    // TEST518: Treat trailing semicolon as equivalent to no trailing semicolon
     #[test]
     fn test_trailing_semicolon_equivalence() {
         // Both with and without trailing semicolon should be equivalent
@@ -1217,6 +1235,7 @@ mod tests {
         assert!(urn2.conforms_to(&urn1).unwrap());
     }
 
+    // TEST519: Serialize tags in alphabetical order as canonical string format
     #[test]
     fn test_canonical_string_format() {
         let urn = TaggedUrn::from_string("cap:op=generate;target=thumbnail;ext=pdf").unwrap();
@@ -1228,6 +1247,7 @@ mod tests {
         );
     }
 
+    // TEST520: Match tags with exact values, subsets, wildcards, and mismatches
     #[test]
     fn test_tag_matching() {
         let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
@@ -1250,6 +1270,7 @@ mod tests {
         assert!(!urn.conforms_to(&request4).unwrap());
     }
 
+    // TEST521: Enforce case-sensitive matching for quoted tag values
     #[test]
     fn test_matching_case_sensitive_values() {
         // Values with different case should NOT match
@@ -1263,6 +1284,7 @@ mod tests {
         assert!(urn1.conforms_to(&urn3).unwrap());
     }
 
+    // TEST522: Handle missing tags in instance vs pattern matching semantics
     #[test]
     fn test_missing_tag_handling() {
         // NEW SEMANTICS: Missing tag in instance means the tag doesn't exist.
@@ -1290,6 +1312,7 @@ mod tests {
         assert!(!urn.conforms_to(&pattern4).unwrap()); // Instance missing ext, pattern requires ext to be present
     }
 
+    // TEST523: Compute graded specificity scores and tuples for URN tags
     #[test]
     fn test_specificity() {
         // NEW GRADED SPECIFICITY:
@@ -1318,6 +1341,7 @@ mod tests {
         assert!(urn2.is_more_specific_than(&urn1).unwrap()); // 3 > 2
     }
 
+    // TEST524: Build URN with multiple tags using TaggedUrnBuilder
     #[test]
     fn test_builder() {
         let urn = TaggedUrnBuilder::new("cap")
@@ -1332,6 +1356,7 @@ mod tests {
         assert_eq!(urn.get_tag("output"), Some(&"binary".to_string()));
     }
 
+    // TEST525: Preserve value case in builder while lowercasing keys
     #[test]
     fn test_builder_preserves_case() {
         let urn = TaggedUrnBuilder::new("cap")
@@ -1345,6 +1370,7 @@ mod tests {
         assert_eq!(urn.to_string(), r#"cap:key="ValueWithCase""#);
     }
 
+    // TEST526: Check bidirectional compatibility between URNs with shared and disjoint tags
     #[test]
     fn test_compatibility() {
         let urn1 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
@@ -1361,6 +1387,7 @@ mod tests {
         assert!(urn4.is_compatible_with(&urn1).unwrap());
     }
 
+    // TEST527: Find best matching URN by specificity from a list of candidates
     #[test]
     fn test_best_match() {
         let urns = vec![
@@ -1377,6 +1404,7 @@ mod tests {
         assert_eq!(best.to_string(), "cap:ext=pdf;op=generate");
     }
 
+    // TEST528: Merge two URNs and extract a subset of tags
     #[test]
     fn test_merge_and_subset() {
         let urn1 = TaggedUrn::from_string("cap:op=generate").unwrap();
@@ -1393,6 +1421,7 @@ mod tests {
         assert_eq!(subset.to_string(), "cap:ext=pdf");
     }
 
+    // TEST529: Reject merge of URNs with different prefixes
     #[test]
     fn test_merge_prefix_mismatch() {
         let urn1 = TaggedUrn::from_string("cap:op=generate").unwrap();
@@ -1403,6 +1432,7 @@ mod tests {
         assert!(matches!(result.unwrap_err(), TaggedUrnError::PrefixMismatch { .. }));
     }
 
+    // TEST530: Convert specific tag value to wildcard and verify matching behavior
     #[test]
     fn test_wildcard_tag() {
         let urn = TaggedUrn::from_string("cap:ext=pdf").unwrap();
@@ -1417,6 +1447,7 @@ mod tests {
         assert!(wildcarded.conforms_to(&TaggedUrn::from_string("cap:ext").unwrap()).unwrap());
     }
 
+    // TEST531: Handle empty tagged URN with no tags in matching and serialization
     #[test]
     fn test_empty_tagged_urn() {
         // Empty tagged URN is valid
@@ -1446,6 +1477,7 @@ mod tests {
         assert_eq!(empty_urn2.tags.len(), 0);
     }
 
+    // TEST532: Create empty URN with custom prefix
     #[test]
     fn test_empty_with_custom_prefix() {
         let empty_urn = TaggedUrn::from_string("myapp:").unwrap();
@@ -1454,6 +1486,7 @@ mod tests {
         assert_eq!(empty_urn.to_string(), "myapp:");
     }
 
+    // TEST533: Parse forward slashes and colons in unquoted tag values
     #[test]
     fn test_extended_character_support() {
         // Test forward slashes and colons in tag components
@@ -1465,6 +1498,7 @@ mod tests {
         assert_eq!(urn.get_tag("path"), Some(&"/some/file".to_string()));
     }
 
+    // TEST534: Reject wildcard in keys but accept wildcard in values
     #[test]
     fn test_wildcard_restrictions() {
         // Wildcard should be rejected in keys
@@ -1475,6 +1509,7 @@ mod tests {
         assert_eq!(urn.get_tag("key"), Some(&"*".to_string()));
     }
 
+    // TEST535: Reject duplicate keys in URN string
     #[test]
     fn test_duplicate_key_rejection() {
         let result = TaggedUrn::from_string("cap:key=value1;key=value2");
@@ -1484,6 +1519,7 @@ mod tests {
         }
     }
 
+    // TEST536: Reject purely numeric keys but allow mixed alphanumeric keys
     #[test]
     fn test_numeric_key_restriction() {
         // Pure numeric keys should be rejected
@@ -1497,12 +1533,14 @@ mod tests {
         assert!(TaggedUrn::from_string("cap:key=123").is_ok());
     }
 
+    // TEST537: Reject empty value after equals sign
     #[test]
     fn test_empty_value_error() {
         assert!(TaggedUrn::from_string("cap:key=").is_err());
         assert!(TaggedUrn::from_string("cap:key=;other=value").is_err());
     }
 
+    // TEST538: Verify has_tag uses case-sensitive value comparison and case-insensitive key lookup
     #[test]
     fn test_has_tag_case_sensitive() {
         let urn = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
@@ -1519,12 +1557,14 @@ mod tests {
         assert!(urn.has_tag("Key", "Value"));
     }
 
+    // TEST539: Preserve value case when adding tag with with_tag method
     #[test]
     fn test_with_tag_preserves_value() {
         let urn = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "ValueWithCase".to_string()).unwrap();
         assert_eq!(urn.get_tag("key"), Some(&"ValueWithCase".to_string()));
     }
 
+    // TEST540: Reject empty value string in with_tag method
     #[test]
     fn test_with_tag_rejects_empty_value() {
         let result = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "".to_string());
@@ -1536,6 +1576,7 @@ mod tests {
         }
     }
 
+    // TEST541: Reject empty value string in builder tag method
     #[test]
     fn test_builder_rejects_empty_value() {
         let result = TaggedUrnBuilder::new("cap").tag("key", "");
@@ -1547,6 +1588,7 @@ mod tests {
         }
     }
 
+    // TEST542: Treat quoted and unquoted simple lowercase values as semantically equivalent
     #[test]
     fn test_semantic_equivalence() {
         // Unquoted and quoted simple lowercase values are equivalent
@@ -1565,6 +1607,7 @@ mod tests {
     // All implementations (Rust, Go, JS, ObjC) must pass these identically
     // ============================================================================
 
+    // TEST543: Verify exact match when instance and pattern have identical tags
     #[test]
     fn test_matching_semantics_test1_exact_match() {
         // Test 1: Exact match
@@ -1576,6 +1619,7 @@ mod tests {
         assert!(urn.conforms_to(&request).unwrap(), "Test 1: Exact match should succeed");
     }
 
+    // TEST544: Reject match when instance is missing a tag required by pattern
     #[test]
     fn test_matching_semantics_test2_instance_missing_tag() {
         // Test 2: Instance missing tag
@@ -1594,6 +1638,7 @@ mod tests {
         assert!(instance.conforms_to(&pattern_optional).unwrap(), "Pattern with ext=? should match instance without ext");
     }
 
+    // TEST545: Match when instance has extra tags not constrained by pattern
     #[test]
     fn test_matching_semantics_test3_urn_has_extra_tag() {
         // Test 3: URN has extra tag
@@ -1605,6 +1650,7 @@ mod tests {
         assert!(urn.conforms_to(&request).unwrap(), "Test 3: URN with extra tag should match");
     }
 
+    // TEST546: Match when pattern has wildcard accepting any value for a tag
     #[test]
     fn test_matching_semantics_test4_request_has_wildcard() {
         // Test 4: Request has wildcard
@@ -1616,6 +1662,7 @@ mod tests {
         assert!(urn.conforms_to(&request).unwrap(), "Test 4: Request wildcard should match");
     }
 
+    // TEST547: Match when instance has wildcard satisfying pattern's specific value
     #[test]
     fn test_matching_semantics_test5_urn_has_wildcard() {
         // Test 5: URN has wildcard
@@ -1627,6 +1674,7 @@ mod tests {
         assert!(urn.conforms_to(&request).unwrap(), "Test 5: URN wildcard should match");
     }
 
+    // TEST548: Reject match when tag values conflict between instance and pattern
     #[test]
     fn test_matching_semantics_test6_value_mismatch() {
         // Test 6: Value mismatch
@@ -1638,6 +1686,7 @@ mod tests {
         assert!(!urn.conforms_to(&request).unwrap(), "Test 6: Value mismatch should not match");
     }
 
+    // TEST549: Reject match when pattern requires a tag absent from instance
     #[test]
     fn test_matching_semantics_test7_pattern_has_extra_tag() {
         // Test 7: Pattern has extra tag that instance doesn't have
@@ -1655,6 +1704,7 @@ mod tests {
         assert!(instance.conforms_to(&pattern_no_ext).unwrap());
     }
 
+    // TEST550: Match any instance against empty pattern with no constraints
     #[test]
     fn test_matching_semantics_test8_empty_pattern_matches_anything() {
         // Test 8: Empty PATTERN matches any INSTANCE
@@ -1674,6 +1724,7 @@ mod tests {
         assert!(!empty_instance.conforms_to(&pattern).unwrap(), "Empty instance should NOT match pattern with requirements");
     }
 
+    // TEST551: Reject match when instance and pattern have non-overlapping tag dimensions
     #[test]
     fn test_matching_semantics_test9_cross_dimension_constraints() {
         // Test 9: Cross-dimension constraints
@@ -1692,6 +1743,7 @@ mod tests {
         assert!(instance2.conforms_to(&pattern2).unwrap(), "Instance with ext=pdf should match pattern requiring ext=pdf");
     }
 
+    // TEST552: Return error for conforms_to, is_compatible_with, and is_more_specific_than with different prefixes
     #[test]
     fn test_matching_different_prefixes_error() {
         // URNs with different prefixes should cause an error, not just return false
@@ -1713,6 +1765,7 @@ mod tests {
     // Value-less tags are equivalent to wildcard tags (key=*)
     // ============================================================================
 
+    // TEST553: Parse single value-less tag as wildcard
     #[test]
     fn test_valueless_tag_parsing_single() {
         // Single value-less tag
@@ -1722,6 +1775,7 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:optimize");
     }
 
+    // TEST554: Parse multiple value-less tags and serialize alphabetically
     #[test]
     fn test_valueless_tag_parsing_multiple() {
         // Multiple value-less tags
@@ -1733,6 +1787,7 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:fast;optimize;secure");
     }
 
+    // TEST555: Parse mix of value-less and valued tags together
     #[test]
     fn test_valueless_tag_mixed_with_valued() {
         // Mix of value-less and valued tags
@@ -1745,6 +1800,7 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:ext=pdf;op=generate;optimize;secure");
     }
 
+    // TEST556: Parse value-less tag at end of URN without trailing semicolon
     #[test]
     fn test_valueless_tag_at_end() {
         // Value-less tag at the end (no trailing semicolon)
@@ -1754,6 +1810,7 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:op=generate;optimize");
     }
 
+    // TEST557: Verify value-less tag is equivalent to explicit wildcard (key=*)
     #[test]
     fn test_valueless_tag_equivalence_to_wildcard() {
         // Value-less tag is equivalent to explicit wildcard
@@ -1765,6 +1822,7 @@ mod tests {
         assert_eq!(wildcard.to_string(), "cap:ext");
     }
 
+    // TEST558: Match value-less wildcard tag against any specific value
     #[test]
     fn test_valueless_tag_matching() {
         // Value-less tag (wildcard) matches any value
@@ -1779,6 +1837,7 @@ mod tests {
         assert!(urn.conforms_to(&request_any).unwrap());
     }
 
+    // TEST559: Require value-less tag in pattern to be present in instance
     #[test]
     fn test_valueless_tag_in_pattern() {
         // Pattern with value-less tag (K=*) requires instance to have the tag
@@ -1798,6 +1857,7 @@ mod tests {
         assert!(instance_missing.conforms_to(&pattern_optional).unwrap());
     }
 
+    // TEST560: Score value-less wildcard tags with graded specificity
     #[test]
     fn test_valueless_tag_specificity() {
         // NEW GRADED SPECIFICITY:
@@ -1812,6 +1872,7 @@ mod tests {
         assert_eq!(urn3.specificity(), 6);  // 2 exact = 3 + 3 = 6
     }
 
+    // TEST561: Round-trip value-less tags through parse and serialize
     #[test]
     fn test_valueless_tag_roundtrip() {
         // Round-trip parsing and serialization
@@ -1823,6 +1884,7 @@ mod tests {
         assert_eq!(serialized, original);
     }
 
+    // TEST562: Normalize value-less tag keys to lowercase
     #[test]
     fn test_valueless_tag_case_normalization() {
         // Value-less tags are normalized to lowercase like other keys
@@ -1833,6 +1895,7 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:fast;optimize;secure");
     }
 
+    // TEST563: Reject empty value with equals sign as distinct from value-less tag
     #[test]
     fn test_empty_value_still_error() {
         // Empty value with = is still an error (different from value-less)
@@ -1840,6 +1903,7 @@ mod tests {
         assert!(TaggedUrn::from_string("cap:key=;other=value").is_err());
     }
 
+    // TEST564: Check compatibility of value-less wildcard tags with specific values
     #[test]
     fn test_valueless_tag_compatibility() {
         // Value-less tags are compatible with any value
@@ -1853,6 +1917,7 @@ mod tests {
         assert!(!urn2.is_compatible_with(&urn3).unwrap());
     }
 
+    // TEST565: Reject purely numeric keys for value-less tags
     #[test]
     fn test_valueless_numeric_key_still_rejected() {
         // Purely numeric keys are still rejected for value-less tags
@@ -1860,6 +1925,7 @@ mod tests {
         assert!(TaggedUrn::from_string("cap:op=generate;456").is_err());
     }
 
+    // TEST566: Reject leading, trailing, and embedded whitespace in URN input
     #[test]
     fn test_whitespace_in_input_rejected() {
         // Leading whitespace fails hard
@@ -1901,6 +1967,7 @@ mod tests {
     // NEW SEMANTICS TESTS: ? (unspecified) and ! (must-not-have)
     // ============================================================================
 
+    // TEST567: Parse question mark as unspecified value and verify serialization
     #[test]
     fn test_unspecified_question_mark_parsing() {
         // ? parses as unspecified
@@ -1910,6 +1977,7 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:ext=?");
     }
 
+    // TEST568: Parse exclamation mark as must-not-have value and verify serialization
     #[test]
     fn test_must_not_have_exclamation_parsing() {
         // ! parses as must-not-have
@@ -1919,6 +1987,7 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:ext=!");
     }
 
+    // TEST569: Match any instance against pattern with unspecified (?) tag value
     #[test]
     fn test_question_mark_pattern_matches_anything() {
         // Pattern with K=? matches any instance (with or without K)
@@ -1937,6 +2006,7 @@ mod tests {
         assert!(instance_must_not.conforms_to(&pattern).unwrap(), "ext=! should match ext=?");
     }
 
+    // TEST570: Match instance with unspecified (?) tag against any pattern constraint
     #[test]
     fn test_question_mark_in_instance() {
         // Instance with K=? matches any pattern constraint
@@ -1955,6 +2025,7 @@ mod tests {
         assert!(instance.conforms_to(&pattern_missing).unwrap(), "ext=? should match (no ext)");
     }
 
+    // TEST571: Require tag to be absent when pattern uses must-not-have (!) value
     #[test]
     fn test_must_not_have_pattern_requires_absent() {
         // Pattern with K=! requires instance to NOT have K
@@ -1971,6 +2042,7 @@ mod tests {
         assert!(instance_must_not.conforms_to(&pattern).unwrap(), "ext=! should match ext=!");
     }
 
+    // TEST572: Reject instance with must-not-have (!) tag against patterns requiring that tag
     #[test]
     fn test_must_not_have_in_instance() {
         // Instance with K=! conflicts with patterns requiring K
@@ -1989,6 +2061,7 @@ mod tests {
         assert!(instance.conforms_to(&pattern_missing).unwrap(), "ext=! should match (no ext)");
     }
 
+    // TEST573: Verify full cross-product truth table for all instance/pattern value combinations
     #[test]
     fn test_full_cross_product_matching() {
         // Comprehensive test of all instance/pattern combinations
@@ -2045,6 +2118,7 @@ mod tests {
         check("cap:k=v", "cap:k=w", false, "K=v/K=w");
     }
 
+    // TEST574: Match URN with mixed required, optional, forbidden, and exact tags
     #[test]
     fn test_mixed_special_values() {
         // Test URNs with multiple special values
@@ -2067,6 +2141,7 @@ mod tests {
         assert!(!wrong_exact.conforms_to(&pattern).unwrap());
     }
 
+    // TEST575: Round-trip all special values (?, !, *, exact) through parse and serialize
     #[test]
     fn test_serialization_round_trip_special_values() {
         // All special values round-trip correctly
@@ -2085,6 +2160,7 @@ mod tests {
         }
     }
 
+    // TEST576: Check compatibility between !, *, ?, and specific value tags
     #[test]
     fn test_compatibility_with_special_values() {
         // ! is incompatible with * and specific values
@@ -2112,6 +2188,7 @@ mod tests {
         assert!(unspecified.is_compatible_with(&missing).unwrap());
     }
 
+    // TEST577: Verify graded specificity scores and tuples for special value types
     #[test]
     fn test_specificity_with_special_values() {
         // Verify graded specificity scoring
