@@ -426,23 +426,42 @@ impl TaggedUrn {
     /// | `K=v`        | **must-have, exact value**  | NO                 | OK           | NO             |
     ///
     /// Special values work symmetrically on both instance and pattern sides.
-    pub fn matches(&self, pattern: &TaggedUrn) -> Result<bool, TaggedUrnError> {
-        // First check prefix - must match exactly
-        if self.prefix != pattern.prefix {
+    ///
+    /// `self` is the instance, `pattern` is the pattern whose constraints must be satisfied.
+    /// Equivalent to `pattern.accepts(self)`.
+    pub fn conforms_to(&self, pattern: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+        Self::check_match(&self.tags, &self.prefix, &pattern.tags, &pattern.prefix)
+    }
+
+    /// Check if this URN (as a pattern) accepts the given instance.
+    ///
+    /// `self` is the pattern defining constraints, `instance` is tested against them.
+    /// Equivalent to `instance.conforms_to(self)`.
+    pub fn accepts(&self, instance: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+        Self::check_match(&instance.tags, &instance.prefix, &self.tags, &self.prefix)
+    }
+
+    /// Core matching: does `instance` satisfy `pattern`'s constraints?
+    fn check_match(
+        instance_tags: &BTreeMap<String, String>,
+        instance_prefix: &str,
+        pattern_tags: &BTreeMap<String, String>,
+        pattern_prefix: &str,
+    ) -> Result<bool, TaggedUrnError> {
+        if instance_prefix != pattern_prefix {
             return Err(TaggedUrnError::PrefixMismatch {
-                expected: self.prefix.clone(),
-                actual: pattern.prefix.clone(),
+                expected: pattern_prefix.to_string(),
+                actual: instance_prefix.to_string(),
             });
         }
 
-        // Collect all keys from both instance and pattern
-        let all_keys: std::collections::HashSet<&String> = self.tags.keys()
-            .chain(pattern.tags.keys())
+        let all_keys: std::collections::HashSet<&String> = instance_tags.keys()
+            .chain(pattern_tags.keys())
             .collect();
 
         for key in all_keys {
-            let inst = self.tags.get(key).map(|s| s.as_str());
-            let patt = pattern.tags.get(key).map(|s| s.as_str());
+            let inst = instance_tags.get(key).map(|s| s.as_str());
+            let patt = pattern_tags.get(key).map(|s| s.as_str());
 
             if !Self::values_match(inst, patt) {
                 return Ok(false);
@@ -506,17 +525,14 @@ impl TaggedUrn {
         }
     }
 
-    pub fn matches_str(&self, request_str: &str) -> Result<bool, TaggedUrnError> {
-        let request = TaggedUrn::from_string(request_str)?;
-        self.matches(&request)
+    pub fn conforms_to_str(&self, pattern_str: &str) -> Result<bool, TaggedUrnError> {
+        let pattern = TaggedUrn::from_string(pattern_str)?;
+        self.conforms_to(&pattern)
     }
 
-    /// Check if this URN can handle a request
-    ///
-    /// This is used when a request comes in with a tagged URN
-    /// and we need to see if this URN can fulfill it
-    pub fn can_handle(&self, request: &TaggedUrn) -> Result<bool, TaggedUrnError> {
-        self.matches(request)
+    pub fn accepts_str(&self, instance_str: &str) -> Result<bool, TaggedUrnError> {
+        let instance = TaggedUrn::from_string(instance_str)?;
+        self.accepts(&instance)
     }
 
     /// Calculate specificity score for URN matching
@@ -819,14 +835,15 @@ impl<'de> Deserialize<'de> for TaggedUrn {
 pub struct UrnMatcher;
 
 impl UrnMatcher {
-    /// Find the most specific URN that can handle a request
-    /// All URNs must have the same prefix as the request
+    /// Find the most specific URN that conforms to a request's constraints.
+    /// URNs are instances (capabilities), request is the pattern (requirement).
+    /// All URNs must have the same prefix as the request.
     pub fn find_best_match<'a>(urns: &'a [TaggedUrn], request: &TaggedUrn) -> Result<Option<&'a TaggedUrn>, TaggedUrnError> {
         let mut best: Option<&TaggedUrn> = None;
         let mut best_specificity = 0;
 
         for urn in urns {
-            if urn.can_handle(request)? {
+            if urn.conforms_to(request)? {
                 let specificity = urn.specificity();
                 if best.is_none() || specificity > best_specificity {
                     best = Some(urn);
@@ -838,20 +855,21 @@ impl UrnMatcher {
         Ok(best)
     }
 
-    /// Find all URNs that can handle a request, sorted by specificity
-    /// All URNs must have the same prefix as the request
+    /// Find all URNs that conform to a request's constraints, sorted by specificity.
+    /// URNs are instances (capabilities), request is the pattern (requirement).
+    /// All URNs must have the same prefix as the request.
     pub fn find_all_matches<'a>(urns: &'a [TaggedUrn], request: &TaggedUrn) -> Result<Vec<&'a TaggedUrn>, TaggedUrnError> {
-        let mut matches: Vec<&TaggedUrn> = Vec::new();
+        let mut results: Vec<&TaggedUrn> = Vec::new();
 
         for urn in urns {
-            if urn.can_handle(request)? {
-                matches.push(urn);
+            if urn.conforms_to(request)? {
+                results.push(urn);
             }
         }
 
         // Sort by specificity (most specific first)
-        matches.sort_by_key(|urn| std::cmp::Reverse(urn.specificity()));
-        Ok(matches)
+        results.sort_by_key(|urn| std::cmp::Reverse(urn.specificity()));
+        Ok(results)
     }
 
     /// Check if two URN sets are compatible
@@ -960,11 +978,13 @@ mod tests {
         let urn1 = TaggedUrn::from_string("cap:op=test").unwrap();
         let urn2 = TaggedUrn::from_string("myapp:op=test").unwrap();
 
-        let result = urn1.matches(&urn2);
+        // urn1 (cap) is instance, urn2 (myapp) is pattern
+        // expected = pattern prefix, actual = instance prefix
+        let result = urn1.conforms_to(&urn2);
         assert!(result.is_err());
         if let Err(TaggedUrnError::PrefixMismatch { expected, actual }) = result {
-            assert_eq!(expected, "cap");
-            assert_eq!(actual, "myapp");
+            assert_eq!(expected, "myapp");
+            assert_eq!(actual, "cap");
         } else {
             panic!("Expected PrefixMismatch error");
         }
@@ -1193,8 +1213,8 @@ mod tests {
         assert_eq!(urn1.to_string(), urn2.to_string());
 
         // They should match each other
-        assert!(urn1.matches(&urn2).unwrap());
-        assert!(urn2.matches(&urn1).unwrap());
+        assert!(urn1.conforms_to(&urn2).unwrap());
+        assert!(urn2.conforms_to(&urn1).unwrap());
     }
 
     #[test]
@@ -1215,19 +1235,19 @@ mod tests {
         // Exact match
         let request1 =
             TaggedUrn::from_string("cap:op=generate;ext=pdf;target=thumbnail;").unwrap();
-        assert!(urn.matches(&request1).unwrap());
+        assert!(urn.conforms_to(&request1).unwrap());
 
         // Subset match
         let request2 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        assert!(urn.matches(&request2).unwrap());
+        assert!(urn.conforms_to(&request2).unwrap());
 
         // Wildcard request should match specific URN
         let request3 = TaggedUrn::from_string("cap:ext=*").unwrap();
-        assert!(urn.matches(&request3).unwrap()); // URN has ext=pdf, request accepts any ext
+        assert!(urn.conforms_to(&request3).unwrap()); // URN has ext=pdf, request accepts any ext
 
         // No match - conflicting value
         let request4 = TaggedUrn::from_string("cap:op=extract").unwrap();
-        assert!(!urn.matches(&request4).unwrap());
+        assert!(!urn.conforms_to(&request4).unwrap());
     }
 
     #[test]
@@ -1235,12 +1255,12 @@ mod tests {
         // Values with different case should NOT match
         let urn1 = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
         let urn2 = TaggedUrn::from_string(r#"cap:key="value""#).unwrap();
-        assert!(!urn1.matches(&urn2).unwrap());
-        assert!(!urn2.matches(&urn1).unwrap());
+        assert!(!urn1.conforms_to(&urn2).unwrap());
+        assert!(!urn2.conforms_to(&urn1).unwrap());
 
         // Same case should match
         let urn3 = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
-        assert!(urn1.matches(&urn3).unwrap());
+        assert!(urn1.conforms_to(&urn3).unwrap());
     }
 
     #[test]
@@ -1253,21 +1273,21 @@ mod tests {
         // Pattern with tag that instance doesn't have: NO MATCH
         // Pattern ext=pdf requires instance to have ext=pdf, but instance doesn't have ext
         let pattern1 = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(!urn.matches(&pattern1).unwrap()); // Instance missing ext, pattern wants ext=pdf
+        assert!(!urn.conforms_to(&pattern1).unwrap()); // Instance missing ext, pattern wants ext=pdf
 
         // Pattern missing tag = no constraint: MATCH
         // Instance has op=generate, pattern has no constraint on op
         let urn2 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let pattern2 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        assert!(urn2.matches(&pattern2).unwrap()); // Instance has ext=pdf, pattern doesn't constrain ext
+        assert!(urn2.conforms_to(&pattern2).unwrap()); // Instance has ext=pdf, pattern doesn't constrain ext
 
         // To match any value of a tag, use explicit ? or *
         let pattern3 = TaggedUrn::from_string("cap:ext=?").unwrap(); // ? = no constraint
-        assert!(urn.matches(&pattern3).unwrap()); // Instance missing ext, pattern doesn't care
+        assert!(urn.conforms_to(&pattern3).unwrap()); // Instance missing ext, pattern doesn't care
 
         // * means must-have-any - instance must have the tag
         let pattern4 = TaggedUrn::from_string("cap:ext=*").unwrap();
-        assert!(!urn.matches(&pattern4).unwrap()); // Instance missing ext, pattern requires ext to be present
+        assert!(!urn.conforms_to(&pattern4).unwrap()); // Instance missing ext, pattern requires ext to be present
     }
 
     #[test]
@@ -1393,8 +1413,8 @@ mod tests {
 
         // Test that wildcarded URN can match more requests
         let request = TaggedUrn::from_string("cap:ext=jpg").unwrap();
-        assert!(!urn.matches(&request).unwrap());
-        assert!(wildcarded.matches(&TaggedUrn::from_string("cap:ext").unwrap()).unwrap());
+        assert!(!urn.conforms_to(&request).unwrap());
+        assert!(wildcarded.conforms_to(&TaggedUrn::from_string("cap:ext").unwrap()).unwrap());
     }
 
     #[test]
@@ -1412,14 +1432,14 @@ mod tests {
 
         // Empty instance vs specific pattern: NO MATCH
         // Pattern requires op=generate and ext=pdf, instance doesn't have them
-        assert!(!empty_urn.matches(&specific_urn).unwrap());
+        assert!(!empty_urn.conforms_to(&specific_urn).unwrap());
 
         // Specific instance vs empty pattern: MATCH
         // Pattern has no constraints, instance can have anything
-        assert!(specific_urn.matches(&empty_urn).unwrap());
+        assert!(specific_urn.conforms_to(&empty_urn).unwrap());
 
         // Empty instance vs empty pattern: MATCH
-        assert!(empty_urn.matches(&empty_urn).unwrap());
+        assert!(empty_urn.conforms_to(&empty_urn).unwrap());
 
         // With trailing semicolon
         let empty_urn2 = TaggedUrn::from_string("cap:;").unwrap();
@@ -1553,7 +1573,7 @@ mod tests {
         // Result:  MATCH
         let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(urn.matches(&request).unwrap(), "Test 1: Exact match should succeed");
+        assert!(urn.conforms_to(&request).unwrap(), "Test 1: Exact match should succeed");
     }
 
     #[test]
@@ -1567,11 +1587,11 @@ mod tests {
         // Pattern K=v requires instance to have K=v.
         let instance = TaggedUrn::from_string("cap:op=generate").unwrap();
         let pattern = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(!instance.matches(&pattern).unwrap(), "Test 2: Instance missing tag should NOT match when pattern requires it");
+        assert!(!instance.conforms_to(&pattern).unwrap(), "Test 2: Instance missing tag should NOT match when pattern requires it");
 
         // To accept any ext (or missing), use pattern with ext=?
         let pattern_optional = TaggedUrn::from_string("cap:op=generate;ext=?").unwrap();
-        assert!(instance.matches(&pattern_optional).unwrap(), "Pattern with ext=? should match instance without ext");
+        assert!(instance.conforms_to(&pattern_optional).unwrap(), "Pattern with ext=? should match instance without ext");
     }
 
     #[test]
@@ -1582,7 +1602,7 @@ mod tests {
         // Result:  MATCH (request doesn't constrain version)
         let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf;version=2").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(urn.matches(&request).unwrap(), "Test 3: URN with extra tag should match");
+        assert!(urn.conforms_to(&request).unwrap(), "Test 3: URN with extra tag should match");
     }
 
     #[test]
@@ -1593,7 +1613,7 @@ mod tests {
         // Result:  MATCH (request accepts any ext)
         let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=*").unwrap();
-        assert!(urn.matches(&request).unwrap(), "Test 4: Request wildcard should match");
+        assert!(urn.conforms_to(&request).unwrap(), "Test 4: Request wildcard should match");
     }
 
     #[test]
@@ -1604,7 +1624,7 @@ mod tests {
         // Result:  MATCH (URN handles any ext)
         let urn = TaggedUrn::from_string("cap:op=generate;ext=*").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(urn.matches(&request).unwrap(), "Test 5: URN wildcard should match");
+        assert!(urn.conforms_to(&request).unwrap(), "Test 5: URN wildcard should match");
     }
 
     #[test]
@@ -1615,7 +1635,7 @@ mod tests {
         // Result:  NO MATCH
         let urn = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let request = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
-        assert!(!urn.matches(&request).unwrap(), "Test 6: Value mismatch should not match");
+        assert!(!urn.conforms_to(&request).unwrap(), "Test 6: Value mismatch should not match");
     }
 
     #[test]
@@ -1628,11 +1648,11 @@ mod tests {
         // NEW SEMANTICS: Pattern K=v requires instance to have K=v
         let instance = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary""#).unwrap();
         let pattern = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary";ext=wav"#).unwrap();
-        assert!(!instance.matches(&pattern).unwrap(), "Test 7: Instance missing ext should NOT match when pattern requires ext=wav");
+        assert!(!instance.conforms_to(&pattern).unwrap(), "Test 7: Instance missing ext should NOT match when pattern requires ext=wav");
 
         // Instance vs pattern that doesn't constrain ext: MATCH
         let pattern_no_ext = TaggedUrn::from_string(r#"cap:op=generate_thumbnail;out="media:binary""#).unwrap();
-        assert!(instance.matches(&pattern_no_ext).unwrap());
+        assert!(instance.conforms_to(&pattern_no_ext).unwrap());
     }
 
     #[test]
@@ -1646,12 +1666,12 @@ mod tests {
         // But empty instance only matches patterns that don't require tags
         let instance = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let empty_pattern = TaggedUrn::from_string("cap:").unwrap();
-        assert!(instance.matches(&empty_pattern).unwrap(), "Test 8: Any instance should match empty pattern");
+        assert!(instance.conforms_to(&empty_pattern).unwrap(), "Test 8: Any instance should match empty pattern");
 
         // Empty instance vs pattern with requirements: NO MATCH
         let empty_instance = TaggedUrn::from_string("cap:").unwrap();
         let pattern = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        assert!(!empty_instance.matches(&pattern).unwrap(), "Empty instance should NOT match pattern with requirements");
+        assert!(!empty_instance.conforms_to(&pattern).unwrap(), "Empty instance should NOT match pattern with requirements");
     }
 
     #[test]
@@ -1664,12 +1684,12 @@ mod tests {
         // NEW SEMANTICS: Pattern K=v requires instance to have K=v
         let instance = TaggedUrn::from_string("cap:op=generate").unwrap();
         let pattern = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(!instance.matches(&pattern).unwrap(), "Test 9: Instance without ext should NOT match pattern requiring ext");
+        assert!(!instance.conforms_to(&pattern).unwrap(), "Test 9: Instance without ext should NOT match pattern requiring ext");
 
         // Instance with ext vs pattern with different tag only: MATCH
         let instance2 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
         let pattern2 = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(instance2.matches(&pattern2).unwrap(), "Instance with ext=pdf should match pattern requiring ext=pdf");
+        assert!(instance2.conforms_to(&pattern2).unwrap(), "Instance with ext=pdf should match pattern requiring ext=pdf");
     }
 
     #[test]
@@ -1678,7 +1698,7 @@ mod tests {
         let urn1 = TaggedUrn::from_string("cap:op=test").unwrap();
         let urn2 = TaggedUrn::from_string("other:op=test").unwrap();
 
-        let result = urn1.matches(&urn2);
+        let result = urn1.conforms_to(&urn2);
         assert!(result.is_err());
 
         let result2 = urn1.is_compatible_with(&urn2);
@@ -1754,9 +1774,9 @@ mod tests {
         let request_docx = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
         let request_any = TaggedUrn::from_string("cap:op=generate;ext=anything").unwrap();
 
-        assert!(urn.matches(&request_pdf).unwrap());
-        assert!(urn.matches(&request_docx).unwrap());
-        assert!(urn.matches(&request_any).unwrap());
+        assert!(urn.conforms_to(&request_pdf).unwrap());
+        assert!(urn.conforms_to(&request_docx).unwrap());
+        assert!(urn.conforms_to(&request_any).unwrap());
     }
 
     #[test]
@@ -1769,13 +1789,13 @@ mod tests {
         let instance_missing = TaggedUrn::from_string("cap:op=generate").unwrap();
 
         // NEW SEMANTICS: K=* (valueless tag) means must-have-any
-        assert!(instance_pdf.matches(&pattern).unwrap()); // Has ext=pdf
-        assert!(instance_docx.matches(&pattern).unwrap()); // Has ext=docx
-        assert!(!instance_missing.matches(&pattern).unwrap()); // Missing ext, pattern requires it
+        assert!(instance_pdf.conforms_to(&pattern).unwrap()); // Has ext=pdf
+        assert!(instance_docx.conforms_to(&pattern).unwrap()); // Has ext=docx
+        assert!(!instance_missing.conforms_to(&pattern).unwrap()); // Missing ext, pattern requires it
 
         // To accept missing ext, use ? instead
         let pattern_optional = TaggedUrn::from_string("cap:op=generate;ext=?").unwrap();
-        assert!(instance_missing.matches(&pattern_optional).unwrap());
+        assert!(instance_missing.conforms_to(&pattern_optional).unwrap());
     }
 
     #[test]
@@ -1910,11 +1930,11 @@ mod tests {
         let instance_wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
         let instance_must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
 
-        assert!(instance_pdf.matches(&pattern).unwrap(), "ext=pdf should match ext=?");
-        assert!(instance_docx.matches(&pattern).unwrap(), "ext=docx should match ext=?");
-        assert!(instance_missing.matches(&pattern).unwrap(), "(no ext) should match ext=?");
-        assert!(instance_wildcard.matches(&pattern).unwrap(), "ext=* should match ext=?");
-        assert!(instance_must_not.matches(&pattern).unwrap(), "ext=! should match ext=?");
+        assert!(instance_pdf.conforms_to(&pattern).unwrap(), "ext=pdf should match ext=?");
+        assert!(instance_docx.conforms_to(&pattern).unwrap(), "ext=docx should match ext=?");
+        assert!(instance_missing.conforms_to(&pattern).unwrap(), "(no ext) should match ext=?");
+        assert!(instance_wildcard.conforms_to(&pattern).unwrap(), "ext=* should match ext=?");
+        assert!(instance_must_not.conforms_to(&pattern).unwrap(), "ext=! should match ext=?");
     }
 
     #[test]
@@ -1928,11 +1948,11 @@ mod tests {
         let pattern_question = TaggedUrn::from_string("cap:ext=?").unwrap();
         let pattern_missing = TaggedUrn::from_string("cap:").unwrap();
 
-        assert!(instance.matches(&pattern_pdf).unwrap(), "ext=? should match ext=pdf");
-        assert!(instance.matches(&pattern_wildcard).unwrap(), "ext=? should match ext=*");
-        assert!(instance.matches(&pattern_must_not).unwrap(), "ext=? should match ext=!");
-        assert!(instance.matches(&pattern_question).unwrap(), "ext=? should match ext=?");
-        assert!(instance.matches(&pattern_missing).unwrap(), "ext=? should match (no ext)");
+        assert!(instance.conforms_to(&pattern_pdf).unwrap(), "ext=? should match ext=pdf");
+        assert!(instance.conforms_to(&pattern_wildcard).unwrap(), "ext=? should match ext=*");
+        assert!(instance.conforms_to(&pattern_must_not).unwrap(), "ext=? should match ext=!");
+        assert!(instance.conforms_to(&pattern_question).unwrap(), "ext=? should match ext=?");
+        assert!(instance.conforms_to(&pattern_missing).unwrap(), "ext=? should match (no ext)");
     }
 
     #[test]
@@ -1945,10 +1965,10 @@ mod tests {
         let instance_wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
         let instance_must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
 
-        assert!(instance_missing.matches(&pattern).unwrap(), "(no ext) should match ext=!");
-        assert!(!instance_pdf.matches(&pattern).unwrap(), "ext=pdf should NOT match ext=!");
-        assert!(!instance_wildcard.matches(&pattern).unwrap(), "ext=* should NOT match ext=!");
-        assert!(instance_must_not.matches(&pattern).unwrap(), "ext=! should match ext=!");
+        assert!(instance_missing.conforms_to(&pattern).unwrap(), "(no ext) should match ext=!");
+        assert!(!instance_pdf.conforms_to(&pattern).unwrap(), "ext=pdf should NOT match ext=!");
+        assert!(!instance_wildcard.conforms_to(&pattern).unwrap(), "ext=* should NOT match ext=!");
+        assert!(instance_must_not.conforms_to(&pattern).unwrap(), "ext=! should match ext=!");
     }
 
     #[test]
@@ -1962,11 +1982,11 @@ mod tests {
         let pattern_question = TaggedUrn::from_string("cap:ext=?").unwrap();
         let pattern_missing = TaggedUrn::from_string("cap:").unwrap();
 
-        assert!(!instance.matches(&pattern_pdf).unwrap(), "ext=! should NOT match ext=pdf");
-        assert!(!instance.matches(&pattern_wildcard).unwrap(), "ext=! should NOT match ext=*");
-        assert!(instance.matches(&pattern_must_not).unwrap(), "ext=! should match ext=!");
-        assert!(instance.matches(&pattern_question).unwrap(), "ext=! should match ext=?");
-        assert!(instance.matches(&pattern_missing).unwrap(), "ext=! should match (no ext)");
+        assert!(!instance.conforms_to(&pattern_pdf).unwrap(), "ext=! should NOT match ext=pdf");
+        assert!(!instance.conforms_to(&pattern_wildcard).unwrap(), "ext=! should NOT match ext=*");
+        assert!(instance.conforms_to(&pattern_must_not).unwrap(), "ext=! should match ext=!");
+        assert!(instance.conforms_to(&pattern_question).unwrap(), "ext=! should match ext=?");
+        assert!(instance.conforms_to(&pattern_missing).unwrap(), "ext=! should match (no ext)");
     }
 
     #[test]
@@ -1979,7 +1999,7 @@ mod tests {
             let inst = TaggedUrn::from_string(instance).unwrap();
             let patt = TaggedUrn::from_string(pattern).unwrap();
             assert_eq!(
-                inst.matches(&patt).unwrap(),
+                inst.conforms_to(&patt).unwrap(),
                 expected,
                 "{}: instance={}, pattern={}",
                 msg,
@@ -2032,19 +2052,19 @@ mod tests {
 
         // Instance that satisfies all constraints
         let good_instance = TaggedUrn::from_string("cap:required=yes;optional=maybe;exact=pdf").unwrap();
-        assert!(good_instance.matches(&pattern).unwrap());
+        assert!(good_instance.conforms_to(&pattern).unwrap());
 
         // Instance missing required tag
         let missing_required = TaggedUrn::from_string("cap:optional=maybe;exact=pdf").unwrap();
-        assert!(!missing_required.matches(&pattern).unwrap());
+        assert!(!missing_required.conforms_to(&pattern).unwrap());
 
         // Instance has forbidden tag
         let has_forbidden = TaggedUrn::from_string("cap:required=yes;forbidden=oops;exact=pdf").unwrap();
-        assert!(!has_forbidden.matches(&pattern).unwrap());
+        assert!(!has_forbidden.conforms_to(&pattern).unwrap());
 
         // Instance with wrong exact value
         let wrong_exact = TaggedUrn::from_string("cap:required=yes;exact=doc").unwrap();
-        assert!(!wrong_exact.matches(&pattern).unwrap());
+        assert!(!wrong_exact.conforms_to(&pattern).unwrap());
     }
 
     #[test]

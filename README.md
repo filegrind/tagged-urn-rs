@@ -59,10 +59,10 @@ let urn = TaggedUrnBuilder::new()
     .tag("ext", "pdf")
     .build()?;
 
-// Check matching
-let request = TaggedUrn::from_string("cap:op=extract")?;
-if urn.matches(&request) {
-    println!("URN matches request");
+// Check matching - does instance conform to pattern's constraints?
+let pattern = TaggedUrn::from_string("cap:op=extract")?;
+if urn.conforms_to(&pattern)? {
+    println!("URN conforms to pattern");
 }
 
 // Compare specificity
@@ -76,11 +76,17 @@ if urn.is_more_specific_than(&request) {
 ### Matching
 
 ```rust
-let urn = TaggedUrn::from_string("cap:op=extract;target=metadata;ext=pdf")?;
-let request = TaggedUrn::from_string("cap:op=extract")?;
+let instance = TaggedUrn::from_string("cap:op=extract;target=metadata;ext=pdf")?;
+let pattern = TaggedUrn::from_string("cap:op=extract")?;
 
-if urn.matches(&request) {
-    println!("URN can handle this request");
+// instance.conforms_to(pattern) - does instance satisfy pattern's constraints?
+if instance.conforms_to(&pattern)? {
+    println!("Instance satisfies pattern");
+}
+
+// pattern.accepts(instance) - equivalent, from pattern's perspective
+if pattern.accepts(&instance)? {
+    println!("Pattern accepts instance");
 }
 ```
 

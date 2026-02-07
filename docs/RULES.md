@@ -114,15 +114,24 @@ Matching is symmetric - special values work the same on both instance and patter
 | K=v | K=v | OK | Exact match |
 | K=v | K=w | NO | Value mismatch (v≠w) |
 
-### 13. The `matches(instance, pattern)` Function
-Given an **instance** and a **pattern**, the instance matches the pattern if and only if:
+### 13. Matching: `conforms_to` and `accepts`
+
+Matching is **directional** — it matters which URN is the pattern and which is the instance.
+Two methods make this explicit:
+
+- `instance.conforms_to(pattern)` — does the instance satisfy the pattern's constraints?
+- `pattern.accepts(instance)` — does the pattern accept this instance?
+
+These are equivalent: `a.conforms_to(b)` = `b.accepts(a)`.
+
+Given an **instance** and a **pattern**, the instance conforms to the pattern if and only if:
 
 1. Collect all keys from both instance and pattern
 2. For each key, check if the values match using the truth table above
 3. If all keys match, return true; otherwise return false
 
 ```rust
-pub fn matches(&self, pattern: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+pub fn conforms_to(&self, pattern: &TaggedUrn) -> Result<bool, TaggedUrnError> {
     // Prefixes must match
     if self.prefix != pattern.prefix {
         return Err(TaggedUrnError::PrefixMismatch { ... });
