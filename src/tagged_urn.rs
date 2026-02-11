@@ -572,86 +572,20 @@ impl TaggedUrn {
     }
 
     /// Check if this URN is more specific than another
+    ///
+    /// Compares specificity scores after verifying same prefix.
+    /// Only meaningful when both patterns already matched the same request.
     pub fn is_more_specific_than(&self, other: &TaggedUrn) -> Result<bool, TaggedUrnError> {
-        // First check prefix
         if self.prefix != other.prefix {
             return Err(TaggedUrnError::PrefixMismatch {
                 expected: self.prefix.clone(),
                 actual: other.prefix.clone(),
             });
-        }
-
-        // Then check if they're compatible
-        if !self.is_compatible_with(other)? {
-            return Ok(false);
         }
 
         Ok(self.specificity() > other.specificity())
     }
 
-    /// Check if this URN is compatible with another
-    ///
-    /// Two URNs are compatible if they have the same prefix and can potentially match
-    /// the same instances (i.e., there exists at least one instance that both patterns accept)
-    ///
-    /// Compatibility rules:
-    /// - `K=v` and `K=w` (v≠w): NOT compatible (no instance can match both exact values)
-    /// - `K=!` and `K=v`/`K=*`: NOT compatible (one requires absent, other requires present)
-    /// - `K=v` and `K=*`: compatible (instance with K=v matches both)
-    /// - `K=?` is compatible with anything (no constraint)
-    /// - Missing entry is compatible with anything (no constraint)
-    pub fn is_compatible_with(&self, other: &TaggedUrn) -> Result<bool, TaggedUrnError> {
-        // First check prefix
-        if self.prefix != other.prefix {
-            return Err(TaggedUrnError::PrefixMismatch {
-                expected: self.prefix.clone(),
-                actual: other.prefix.clone(),
-            });
-        }
-
-        // Get all unique tag keys from both URNs
-        let mut all_keys = self
-            .tags
-            .keys()
-            .cloned()
-            .collect::<std::collections::HashSet<_>>();
-        all_keys.extend(other.tags.keys().cloned());
-
-        for key in all_keys {
-            if !Self::values_compatible(
-                self.tags.get(&key).map(|s| s.as_str()),
-                other.tags.get(&key).map(|s| s.as_str()),
-            ) {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
-    /// Check if two pattern values are compatible (could match the same instance)
-    fn values_compatible(v1: Option<&str>, v2: Option<&str>) -> bool {
-        match (v1, v2) {
-            // Either missing or ? means no constraint - compatible with anything
-            (None, _) | (_, None) => true,
-            (Some("?"), _) | (_, Some("?")) => true,
-
-            // Both are ! - compatible (both want absent)
-            (Some("!"), Some("!")) => true,
-
-            // One is ! and other is value or * - NOT compatible
-            (Some("!"), Some(_)) | (Some(_), Some("!")) => false,
-
-            // Both are * - compatible
-            (Some("*"), Some("*")) => true,
-
-            // One is * and other is value - compatible (value matches *)
-            (Some("*"), Some(_)) | (Some(_), Some("*")) => true,
-
-            // Both are specific values - must be equal
-            (Some(a), Some(b)) => a == b,
-        }
-    }
 
     /// Create a wildcard version by replacing specific values with wildcards
     pub fn with_wildcard_tag(self, key: &str) -> Self {
@@ -877,7 +811,7 @@ impl UrnMatcher {
     pub fn are_compatible(urns1: &[TaggedUrn], urns2: &[TaggedUrn]) -> Result<bool, TaggedUrnError> {
         for u1 in urns1 {
             for u2 in urns2 {
-                if u1.is_compatible_with(u2)? {
+                if u1.accepts(u2)? || u2.accepts(u1)? {
                     return Ok(true);
                 }
             }
@@ -1370,21 +1304,32 @@ mod tests {
         assert_eq!(urn.to_string(), r#"cap:key="ValueWithCase""#);
     }
 
-    // TEST526: Check bidirectional compatibility between URNs with shared and disjoint tags
+    // TEST526: Verify directional accepts between patterns with shared and disjoint tags
     #[test]
-    fn test_compatibility() {
-        let urn1 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        let urn2 = TaggedUrn::from_string("cap:op=generate;format=*").unwrap();
-        let urn3 = TaggedUrn::from_string("cap:image;op=extract").unwrap();
+    fn test_directional_accepts_with_tag_overlap() {
+        let specific = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let general = TaggedUrn::from_string("cap:op=generate").unwrap();
+        let different = TaggedUrn::from_string("cap:image;op=extract").unwrap();
+        let wildcard = TaggedUrn::from_string("cap:op=generate;format=*").unwrap();
 
-        assert!(urn1.is_compatible_with(&urn2).unwrap());
-        assert!(urn2.is_compatible_with(&urn1).unwrap());
-        assert!(!urn1.is_compatible_with(&urn3).unwrap());
+        // General pattern accepts specific instance (missing ext in pattern = no constraint)
+        assert!(general.accepts(&specific).unwrap());
+        // Specific does NOT accept general (ext=pdf requires ext, general has none)
+        assert!(!specific.accepts(&general).unwrap());
 
-        // Missing tags are treated as wildcards for compatibility
-        let urn4 = TaggedUrn::from_string("cap:op=generate").unwrap();
-        assert!(urn1.is_compatible_with(&urn4).unwrap());
-        assert!(urn4.is_compatible_with(&urn1).unwrap());
+        // Different op values: neither direction accepts
+        assert!(!specific.accepts(&different).unwrap());
+        assert!(!different.accepts(&specific).unwrap());
+
+        // Wildcard with format=* does NOT accept specific (specific has no format, * requires present)
+        assert!(!wildcard.accepts(&specific).unwrap());
+        // Specific does NOT accept wildcard (wildcard has no ext, specific requires ext=pdf)
+        assert!(!specific.accepts(&wildcard).unwrap());
+
+        // But a fully-specified instance satisfies both
+        let full_instance = TaggedUrn::from_string("cap:op=generate;ext=pdf;format=png").unwrap();
+        assert!(specific.accepts(&full_instance).unwrap());
+        assert!(wildcard.accepts(&full_instance).unwrap());
     }
 
     // TEST527: Find best matching URN by specificity from a list of candidates
@@ -1743,7 +1688,7 @@ mod tests {
         assert!(instance2.conforms_to(&pattern2).unwrap(), "Instance with ext=pdf should match pattern requiring ext=pdf");
     }
 
-    // TEST552: Return error for conforms_to, is_compatible_with, and is_more_specific_than with different prefixes
+    // TEST552: Return error for conforms_to, accepts, and is_more_specific_than with different prefixes
     #[test]
     fn test_matching_different_prefixes_error() {
         // URNs with different prefixes should cause an error, not just return false
@@ -1753,7 +1698,7 @@ mod tests {
         let result = urn1.conforms_to(&urn2);
         assert!(result.is_err());
 
-        let result2 = urn1.is_compatible_with(&urn2);
+        let result2 = urn1.accepts(&urn2);
         assert!(result2.is_err());
 
         let result3 = urn1.is_more_specific_than(&urn2);
@@ -1903,18 +1848,23 @@ mod tests {
         assert!(TaggedUrn::from_string("cap:key=;other=value").is_err());
     }
 
-    // TEST564: Check compatibility of value-less wildcard tags with specific values
+    // TEST564: Verify directional accepts of value-less wildcard tags with specific values
     #[test]
-    fn test_valueless_tag_compatibility() {
-        // Value-less tags are compatible with any value
-        let urn1 = TaggedUrn::from_string("cap:op=generate;ext").unwrap();
-        let urn2 = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
-        let urn3 = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
+    fn test_valueless_tag_directional_accepts() {
+        // Value-less tags stored as * act as pattern requiring any present value
+        let wildcard_ext = TaggedUrn::from_string("cap:op=generate;ext").unwrap();
+        let ext_pdf = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let ext_docx = TaggedUrn::from_string("cap:op=generate;ext=docx").unwrap();
 
-        assert!(urn1.is_compatible_with(&urn2).unwrap());
-        assert!(urn1.is_compatible_with(&urn3).unwrap());
-        // But urn2 and urn3 are not compatible (different specific values)
-        assert!(!urn2.is_compatible_with(&urn3).unwrap());
+        // wildcard ext=* accepts specific ext=pdf (pattern * accepts any value)
+        assert!(wildcard_ext.accepts(&ext_pdf).unwrap());
+        // specific ext=pdf conforms_to wildcard ext=* (instance value satisfies * pattern)
+        assert!(ext_pdf.conforms_to(&wildcard_ext).unwrap());
+        // Same for docx
+        assert!(wildcard_ext.accepts(&ext_docx).unwrap());
+        // But pdf and docx don't accept each other (different exact values)
+        assert!(!ext_pdf.accepts(&ext_docx).unwrap());
+        assert!(!ext_docx.accepts(&ext_pdf).unwrap());
     }
 
     // TEST565: Reject purely numeric keys for value-less tags
@@ -2160,32 +2110,32 @@ mod tests {
         }
     }
 
-    // TEST576: Check compatibility between !, *, ?, and specific value tags
+    // TEST576: Check bidirectional accepts between !, *, ?, and specific value tags
     #[test]
-    fn test_compatibility_with_special_values() {
-        // ! is incompatible with * and specific values
+    fn test_bidirectional_accepts_with_special_values() {
+        // ! does not overlap with * or specific values
         let must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
         let must_have = TaggedUrn::from_string("cap:ext=*").unwrap();
         let specific = TaggedUrn::from_string("cap:ext=pdf").unwrap();
         let unspecified = TaggedUrn::from_string("cap:ext=?").unwrap();
         let missing = TaggedUrn::from_string("cap:").unwrap();
 
-        assert!(!must_not.is_compatible_with(&must_have).unwrap());
-        assert!(!must_not.is_compatible_with(&specific).unwrap());
-        assert!(must_not.is_compatible_with(&unspecified).unwrap());
-        assert!(must_not.is_compatible_with(&missing).unwrap());
-        assert!(must_not.is_compatible_with(&must_not).unwrap());
+        assert!(!(must_not.accepts(&must_have).unwrap() || must_have.accepts(&must_not).unwrap()));
+        assert!(!(must_not.accepts(&specific).unwrap() || specific.accepts(&must_not).unwrap()));
+        assert!(must_not.accepts(&unspecified).unwrap() || unspecified.accepts(&must_not).unwrap());
+        assert!(must_not.accepts(&missing).unwrap() || missing.accepts(&must_not).unwrap());
+        assert!(must_not.accepts(&must_not).unwrap() || must_not.accepts(&must_not).unwrap());
 
-        // * is compatible with specific values
-        assert!(must_have.is_compatible_with(&specific).unwrap());
-        assert!(must_have.is_compatible_with(&must_have).unwrap());
+        // * overlaps with specific values
+        assert!(must_have.accepts(&specific).unwrap() || specific.accepts(&must_have).unwrap());
+        assert!(must_have.accepts(&must_have).unwrap() || must_have.accepts(&must_have).unwrap());
 
-        // ? is compatible with everything
-        assert!(unspecified.is_compatible_with(&must_not).unwrap());
-        assert!(unspecified.is_compatible_with(&must_have).unwrap());
-        assert!(unspecified.is_compatible_with(&specific).unwrap());
-        assert!(unspecified.is_compatible_with(&unspecified).unwrap());
-        assert!(unspecified.is_compatible_with(&missing).unwrap());
+        // ? overlaps with everything
+        assert!(unspecified.accepts(&must_not).unwrap() || must_not.accepts(&unspecified).unwrap());
+        assert!(unspecified.accepts(&must_have).unwrap() || must_have.accepts(&unspecified).unwrap());
+        assert!(unspecified.accepts(&specific).unwrap() || specific.accepts(&unspecified).unwrap());
+        assert!(unspecified.accepts(&unspecified).unwrap() || unspecified.accepts(&unspecified).unwrap());
+        assert!(unspecified.accepts(&missing).unwrap() || missing.accepts(&unspecified).unwrap());
     }
 
     // TEST577: Verify graded specificity scores and tuples for special value types
