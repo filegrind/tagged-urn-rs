@@ -535,6 +535,60 @@ impl TaggedUrn {
         self.accepts(&instance)
     }
 
+    /// Check if two URNs are equivalent (identical tag sets).
+    ///
+    /// From order theory: in the specialization partial order defined by
+    /// `accepts`/`conforms_to`, two elements are **equivalent** when each
+    /// accepts the other (antisymmetry: a ≤ b ∧ b ≤ a → a = b).
+    ///
+    /// This is stricter than `is_comparable` — it requires the tag sets to
+    /// be identical, not just related by specialization.
+    ///
+    /// ```text
+    /// a.is_equivalent(&b)  ≡  a.accepts(&b) && b.accepts(&a)
+    /// ```
+    ///
+    /// Returns `PrefixMismatch` error if prefixes differ (inherited from
+    /// `accepts`/`conforms_to` — both sides return false on mismatch, but
+    /// since we AND them, the error propagates).
+    pub fn is_equivalent(&self, other: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+        Ok(self.accepts(other)? && other.accepts(self)?)
+    }
+
+    /// Check if two URNs are comparable (one is a specialization of the other).
+    ///
+    /// From order theory: in a partial order, two elements are **comparable**
+    /// when one is ≤ the other. Elements that are NOT comparable are in
+    /// different branches of the specialization lattice (e.g., `media:pdf;bytes`
+    /// vs `media:txt;textable` — neither accepts the other).
+    ///
+    /// This is the weakest relation: it finds all URNs on the same
+    /// generalization/specialization chain. Use it when you want to discover
+    /// all handlers that *could* service a request, whether they are more
+    /// general (fallback) or more specific (exact match).
+    ///
+    /// ```text
+    /// a.is_comparable(&b)  ≡  a.accepts(&b) || b.accepts(&a)
+    /// ```
+    ///
+    /// Returns `PrefixMismatch` error if prefixes differ (inherited from
+    /// `accepts`/`conforms_to`).
+    pub fn is_comparable(&self, other: &TaggedUrn) -> Result<bool, TaggedUrnError> {
+        Ok(self.accepts(other)? || other.accepts(self)?)
+    }
+
+    /// String variant of `is_equivalent`.
+    pub fn is_equivalent_str(&self, other_str: &str) -> Result<bool, TaggedUrnError> {
+        let other = TaggedUrn::from_string(other_str)?;
+        self.is_equivalent(&other)
+    }
+
+    /// String variant of `is_comparable`.
+    pub fn is_comparable_str(&self, other_str: &str) -> Result<bool, TaggedUrnError> {
+        let other = TaggedUrn::from_string(other_str)?;
+        self.is_comparable(&other)
+    }
+
     /// Calculate specificity score for URN matching
     ///
     /// More specific URNs have higher scores and are preferred
@@ -2136,6 +2190,128 @@ mod tests {
         assert!(unspecified.accepts(&specific).unwrap() || specific.accepts(&unspecified).unwrap());
         assert!(unspecified.accepts(&unspecified).unwrap() || unspecified.accepts(&unspecified).unwrap());
         assert!(unspecified.accepts(&missing).unwrap() || missing.accepts(&unspecified).unwrap());
+    }
+
+    // =========================================================================
+    // ORDER-THEORETIC RELATIONS: is_equivalent, is_comparable
+    // =========================================================================
+
+    // TEST578: Equivalent URNs with identical tag sets
+    #[test]
+    fn test578_equivalent_identical_tags() {
+        let a = TaggedUrn::from_string("cap:op=generate;ext=pdf").unwrap();
+        let b = TaggedUrn::from_string("cap:ext=pdf;op=generate").unwrap(); // same tags, different order
+        assert!(a.is_equivalent(&b).unwrap());
+        assert!(b.is_equivalent(&a).unwrap()); // symmetric
+    }
+
+    // TEST579: Non-equivalent URNs where one is more specific
+    #[test]
+    fn test579_not_equivalent_when_one_more_specific() {
+        let general = TaggedUrn::from_string("media:bytes").unwrap();
+        let specific = TaggedUrn::from_string("media:pdf;bytes").unwrap();
+        assert!(!general.is_equivalent(&specific).unwrap());
+        assert!(!specific.is_equivalent(&general).unwrap());
+    }
+
+    // TEST580: Comparable URNs on the same specialization chain
+    #[test]
+    fn test580_comparable_specialization_chain() {
+        let general = TaggedUrn::from_string("media:bytes").unwrap();
+        let specific = TaggedUrn::from_string("media:pdf;bytes").unwrap();
+        // general.accepts(specific) = true (bytes ⊆ pdf;bytes)
+        // specific.accepts(general) = false (pdf missing from general)
+        // OR → true
+        assert!(general.is_comparable(&specific).unwrap());
+        assert!(specific.is_comparable(&general).unwrap()); // symmetric
+    }
+
+    // TEST581: Incomparable URNs in different branches of the lattice
+    #[test]
+    fn test581_incomparable_different_branches() {
+        let pdf = TaggedUrn::from_string("media:pdf;bytes").unwrap();
+        let txt = TaggedUrn::from_string("media:txt;textable").unwrap();
+        // pdf.accepts(txt) = false (pdf missing from txt)
+        // txt.accepts(pdf) = false (txt missing from pdf)
+        // OR → false
+        assert!(!pdf.is_comparable(&txt).unwrap());
+        assert!(!txt.is_comparable(&pdf).unwrap());
+    }
+
+    // TEST582: Equivalent implies comparable but not vice versa
+    #[test]
+    fn test582_equivalent_implies_comparable() {
+        let a = TaggedUrn::from_string("cap:op=test;ext=pdf").unwrap();
+        let b = TaggedUrn::from_string("cap:op=test;ext=pdf").unwrap();
+        // equivalent → comparable (AND implies OR)
+        assert!(a.is_equivalent(&b).unwrap());
+        assert!(a.is_comparable(&b).unwrap());
+
+        // comparable but NOT equivalent
+        let general = TaggedUrn::from_string("cap:op=test").unwrap();
+        let specific = TaggedUrn::from_string("cap:op=test;ext=pdf").unwrap();
+        assert!(!general.is_equivalent(&specific).unwrap());
+        assert!(general.is_comparable(&specific).unwrap());
+    }
+
+    // TEST583: Prefix mismatch returns error for both relations
+    #[test]
+    fn test583_prefix_mismatch_errors() {
+        let cap = TaggedUrn::from_string("cap:op=test").unwrap();
+        let media = TaggedUrn::from_string("media:bytes").unwrap();
+        assert!(cap.is_equivalent(&media).is_err());
+        assert!(cap.is_comparable(&media).is_err());
+    }
+
+    // TEST584: Empty tag set is comparable to everything with same prefix
+    #[test]
+    fn test584_empty_tags_comparable_to_all() {
+        let empty = TaggedUrn::from_string("media:").unwrap();
+        let specific = TaggedUrn::from_string("media:pdf;bytes;thumbnail").unwrap();
+        // empty.accepts(specific) = true (empty has no constraints)
+        assert!(empty.is_comparable(&specific).unwrap());
+        // but NOT equivalent (specific has tags empty doesn't)
+        assert!(!empty.is_equivalent(&specific).unwrap());
+        // empty is equivalent to itself
+        let empty2 = TaggedUrn::from_string("media:").unwrap();
+        assert!(empty.is_equivalent(&empty2).unwrap());
+    }
+
+    // TEST585: String variants of is_equivalent and is_comparable
+    #[test]
+    fn test585_string_variants() {
+        let urn = TaggedUrn::from_string("media:pdf;bytes").unwrap();
+        assert!(urn.is_equivalent_str("media:bytes;pdf").unwrap()); // same tags
+        assert!(!urn.is_equivalent_str("media:bytes").unwrap()); // different
+        assert!(urn.is_comparable_str("media:bytes").unwrap()); // on same chain
+        assert!(!urn.is_comparable_str("media:txt;textable").unwrap()); // different branch
+    }
+
+    // TEST586: Special values (*, !, ?) with is_equivalent and is_comparable
+    #[test]
+    fn test586_special_values() {
+        let must_have = TaggedUrn::from_string("cap:ext").unwrap(); // ext=*
+        let exact = TaggedUrn::from_string("cap:ext=pdf").unwrap(); // ext=pdf
+        let must_not = TaggedUrn::from_string("cap:ext=!").unwrap(); // ext=!
+        let unspecified = TaggedUrn::from_string("cap:ext=?").unwrap(); // ext=?
+
+        // must_have (*) and exact (pdf): equivalent — * accepts any value
+        // bidirectionally (instance * is fine with pattern pdf, pattern * accepts instance pdf)
+        assert!(must_have.is_equivalent(&exact).unwrap());
+        assert!(must_have.is_comparable(&exact).unwrap());
+
+        // must_not (!) and exact (pdf): incomparable (conflict both directions)
+        assert!(!must_not.is_comparable(&exact).unwrap());
+        assert!(!must_not.is_equivalent(&exact).unwrap());
+
+        // must_not (!) and must_have (*): incomparable (conflict both directions)
+        assert!(!must_not.is_comparable(&must_have).unwrap());
+        assert!(!must_not.is_equivalent(&must_have).unwrap());
+
+        // unspecified (?) is equivalent to everything — ? matches anything
+        assert!(unspecified.is_equivalent(&exact).unwrap());
+        assert!(unspecified.is_equivalent(&must_have).unwrap());
+        assert!(unspecified.is_equivalent(&must_not).unwrap());
     }
 
     // TEST577: Verify graded specificity scores and tuples for special value types
