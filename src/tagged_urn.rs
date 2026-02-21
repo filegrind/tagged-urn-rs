@@ -2337,4 +2337,179 @@ mod tests {
         assert_eq!(unspecified.specificity_tuple(), (0, 0, 0));
         assert_eq!(mixed.specificity_tuple(), (1, 1, 1));
     }
+
+    // =========================================================================
+    // BUILDER TESTS (mirroring ObjC CSTaggedUrnBuilderTests)
+    // =========================================================================
+
+    // TEST587: Builder fluent API for tag manipulation
+    #[test]
+    fn test587_builder_fluent_api() {
+        let urn = TaggedUrnBuilder::new("cap")
+            .tag("op", "generate").unwrap()
+            .tag("target", "thumbnail").unwrap()
+            .tag("format", "pdf").unwrap()
+            .tag("output", "binary").unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(urn.get_tag("op"), Some(&"generate".to_string()));
+        assert_eq!(urn.get_tag("target"), Some(&"thumbnail".to_string()));
+        assert_eq!(urn.get_tag("format"), Some(&"pdf".to_string()));
+        assert_eq!(urn.get_tag("output"), Some(&"binary".to_string()));
+    }
+
+    // TEST588: Builder with custom tags
+    #[test]
+    fn test588_builder_custom_tags() {
+        let urn = TaggedUrnBuilder::new("cap")
+            .tag("engine", "v2").unwrap()
+            .tag("quality", "high").unwrap()
+            .tag("op", "compress").unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(urn.get_tag("engine"), Some(&"v2".to_string()));
+        assert_eq!(urn.get_tag("quality"), Some(&"high".to_string()));
+        assert_eq!(urn.get_tag("op"), Some(&"compress".to_string()));
+    }
+
+    // TEST589: Builder tag overrides (last value wins)
+    #[test]
+    fn test589_builder_tag_overrides() {
+        let urn = TaggedUrnBuilder::new("cap")
+            .tag("op", "convert").unwrap()
+            .tag("format", "jpg").unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(urn.get_tag("op"), Some(&"convert".to_string()));
+        assert_eq!(urn.get_tag("format"), Some(&"jpg".to_string()));
+    }
+
+    // TEST590: Builder empty build returns error (tags required)
+    #[test]
+    fn test590_builder_empty_build() {
+        // Empty builder returns error - tags are required
+        let result = TaggedUrnBuilder::new("cap").build();
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(matches!(e, TaggedUrnError::Empty));
+        }
+    }
+
+    // TEST591: Builder with single tag
+    #[test]
+    fn test591_builder_single_tag() {
+        let urn = TaggedUrnBuilder::new("cap")
+            .tag("type", "utility").unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(urn.to_string(), "cap:type=utility");
+        assert_eq!(urn.get_tag("type"), Some(&"utility".to_string()));
+        // NEW GRADED SPECIFICITY: exact value = 3 points
+        assert_eq!(urn.specificity(), 3);
+    }
+
+    // TEST592: Builder with complex multi-tag URN
+    #[test]
+    fn test592_builder_complex() {
+        let urn = TaggedUrnBuilder::new("cap")
+            .tag("type", "media").unwrap()
+            .tag("op", "transcode").unwrap()
+            .tag("target", "video").unwrap()
+            .tag("format", "mp4").unwrap()
+            .tag("codec", "h264").unwrap()
+            .tag("quality", "1080p").unwrap()
+            .tag("framerate", "30fps").unwrap()
+            .tag("output", "binary").unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(urn.get_tag("type"), Some(&"media".to_string()));
+        assert_eq!(urn.get_tag("op"), Some(&"transcode".to_string()));
+        assert_eq!(urn.get_tag("target"), Some(&"video".to_string()));
+        assert_eq!(urn.get_tag("format"), Some(&"mp4".to_string()));
+        assert_eq!(urn.get_tag("codec"), Some(&"h264".to_string()));
+        assert_eq!(urn.get_tag("quality"), Some(&"1080p".to_string()));
+        assert_eq!(urn.get_tag("framerate"), Some(&"30fps".to_string()));
+        assert_eq!(urn.get_tag("output"), Some(&"binary".to_string()));
+
+        // NEW GRADED SPECIFICITY: 8 exact values × 3 points each = 24
+        assert_eq!(urn.specificity(), 24);
+    }
+
+    // TEST593: Builder with wildcards
+    #[test]
+    fn test593_builder_wildcards() {
+        let urn = TaggedUrnBuilder::new("cap")
+            .tag("op", "convert").unwrap()
+            .tag("ext", "*").unwrap() // Wildcard
+            .tag("quality", "*").unwrap() // Wildcard
+            .build()
+            .unwrap();
+
+        // Wildcards serialize as value-less
+        assert_eq!(urn.to_string(), "cap:ext;op=convert;quality");
+        // NEW GRADED SPECIFICITY: op=convert (exact) = 3, ext=* = 2, quality=* = 2
+        // Total = 3 + 2 + 2 = 7
+        assert_eq!(urn.specificity(), 7);
+
+        assert_eq!(urn.get_tag("ext"), Some(&"*".to_string()));
+        assert_eq!(urn.get_tag("quality"), Some(&"*".to_string()));
+    }
+
+    // TEST594: Builder with custom prefix
+    #[test]
+    fn test594_builder_custom_prefix() {
+        let urn = TaggedUrnBuilder::new("myapp")
+            .tag("key", "value").unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(urn.prefix, "myapp");
+        assert_eq!(urn.to_string(), "myapp:key=value");
+    }
+
+    // TEST595: Builder matching with built URN
+    #[test]
+    fn test595_builder_matching_with_built_urn() {
+        // Create a specific instance
+        let specific_instance = TaggedUrnBuilder::new("cap")
+            .tag("op", "generate").unwrap()
+            .tag("target", "thumbnail").unwrap()
+            .tag("format", "pdf").unwrap()
+            .build()
+            .unwrap();
+
+        // Create a more general pattern (fewer constraints)
+        let general_pattern = TaggedUrnBuilder::new("cap")
+            .tag("op", "generate").unwrap()
+            .build()
+            .unwrap();
+
+        // Create a pattern with wildcard (ext=* means must-have-any)
+        let wildcard_pattern = TaggedUrnBuilder::new("cap")
+            .tag("op", "generate").unwrap()
+            .tag("target", "thumbnail").unwrap()
+            .tag("ext", "*").unwrap()
+            .build()
+            .unwrap();
+
+        // Specific instance should match general pattern (pattern has fewer constraints)
+        assert!(specific_instance.conforms_to(&general_pattern).unwrap());
+
+        // NEW SEMANTICS: wildcardPattern has ext=* which means instance MUST have ext
+        // specificInstance doesn't have ext, so this should NOT match
+        assert!(!specific_instance.conforms_to(&wildcard_pattern).unwrap());
+
+        // Check specificity
+        assert!(specific_instance.is_more_specific_than(&general_pattern).unwrap());
+
+        // NEW GRADED SPECIFICITY: exact value = 3 points, * = 2 points
+        assert_eq!(specific_instance.specificity(), 9); // 3 exact values × 3 = 9
+        assert_eq!(general_pattern.specificity(), 3); // 1 exact value × 3 = 3
+        assert_eq!(wildcard_pattern.specificity(), 8); // 2 exact × 3 + 1 * × 2 = 6 + 2 = 8
+    }
 }
