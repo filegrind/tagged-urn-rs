@@ -79,5 +79,5 @@ flame.svg
 *.backup
 .scrap/
 
-.ws/
+.wsb/
 diffs/
