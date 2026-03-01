@@ -9,9 +9,9 @@ version = "1.0"
 [dev-dependencies]
 
 [package]
-authors = ["https://github.com/jowharshamshiri"]
+authors = ["https://github.com/machinefabric"]
 description = "Tagged URN - Flat tag-based identifier system"
 edition = "2021"
 license = "MIT"
 name = "tagged-urn"
-version = "0.27.4786"
+version = "0.28.4792"
