@@ -28,6 +28,22 @@ impl PartialEq for TaggedUrn {
     }
 }
 
+impl PartialOrd for TaggedUrn {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TaggedUrn {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Compare by prefix first, then by tags (BTreeMap comparison is lexicographic)
+        match self.prefix.cmp(&other.prefix) {
+            std::cmp::Ordering::Equal => self.tags.cmp(&other.tags),
+            other => other,
+        }
+    }
+}
+
 /// Parser states for the state machine
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ParseState {
@@ -2512,4 +2528,17 @@ mod tests {
         assert_eq!(general_pattern.specificity(), 3); // 1 exact value × 3 = 3
         assert_eq!(wildcard_pattern.specificity(), 8); // 2 exact × 3 + 1 * × 2 = 6 + 2 = 8
     }
+}
+
+#[test]
+fn test_tag_order_normalization() {
+    // Two URNs with same tags in different order should produce identical canonical string
+    let urn1 = TaggedUrn::from_string("media:list;textable").unwrap();
+    let urn2 = TaggedUrn::from_string("media:textable;list").unwrap();
+    
+    eprintln!("urn1: {}", urn1.to_string());
+    eprintln!("urn2: {}", urn2.to_string());
+    
+    assert_eq!(urn1.to_string(), urn2.to_string(), "Tag order should be normalized to canonical form");
+    assert_eq!(urn1, urn2, "URNs with same tags should be equal");
 }
