@@ -158,53 +158,53 @@ pub fn conforms_to(&self, pattern: &TaggedUrn) -> Result<bool, TaggedUrnError> {
 
 ```
 # Example 1: Exact match
-Instance: cap:op=generate;ext=pdf
-Pattern:  cap:op=generate;ext=pdf
+Instance: cap:generate;ext=pdf
+Pattern:  cap:generate;ext=pdf
 Result:   MATCH
 
 # Example 2: Pattern has no constraint on ext
-Instance: cap:op=generate;ext=pdf
+Instance: cap:generate;ext=pdf
 Pattern:  cap:op=generate
 Result:   MATCH (missing tag = no constraint)
 
 # Example 3: Instance has extra tags
-Instance: cap:op=generate;ext=pdf;version=2
-Pattern:  cap:op=generate;ext=pdf
+Instance: cap:generate;ext=pdf;version=2
+Pattern:  cap:generate;ext=pdf
 Result:   MATCH (pattern doesn't constrain version)
 
 # Example 4: Pattern uses must-have-any
-Instance: cap:op=generate;ext=pdf
-Pattern:  cap:op=generate;ext=*
+Instance: cap:generate;ext=pdf
+Pattern:  cap:generate;ext=*
 Result:   MATCH (instance has ext, pattern just wants any ext)
 
 # Example 5: Value mismatch
-Instance: cap:op=generate;ext=pdf
-Pattern:  cap:op=generate;ext=docx
+Instance: cap:generate;ext=pdf
+Pattern:  cap:generate;ext=docx
 Result:   NO MATCH (pdf ≠ docx)
 
 # Example 6: Must-not-have satisfied
 Instance: cap:op=generate
-Pattern:  cap:op=generate;debug=!
+Pattern:  cap:generate;debug=!
 Result:   MATCH (instance lacks debug, pattern wants it absent)
 
 # Example 7: Must-not-have violated
-Instance: cap:op=generate;debug=true
-Pattern:  cap:op=generate;debug=!
+Instance: cap:generate;debug=true
+Pattern:  cap:generate;debug=!
 Result:   NO MATCH (instance has debug, pattern wants it absent)
 
 # Example 8: Must-have-any not satisfied
 Instance: cap:op=generate
-Pattern:  cap:op=generate;ext=*
+Pattern:  cap:generate;ext=*
 Result:   NO MATCH (instance lacks ext, pattern requires it)
 
 # Example 9: Explicit unspecified
-Instance: cap:op=generate;ext=pdf
-Pattern:  cap:op=generate;ext=?
+Instance: cap:generate;ext=pdf
+Pattern:  cap:generate;ext=?
 Result:   MATCH (pattern explicitly doesn't care about ext)
 
 # Example 10: Value-less tag (must-have-any)
-Instance: cap:op=generate;ext=pdf
-Pattern:  cap:op=generate;ext           (ext = ext=*)
+Instance: cap:generate;ext=pdf
+Pattern:  cap:generate;ext           (ext = ext=*)
 Result:   MATCH (instance has ext with value)
 ```
 
@@ -221,9 +221,9 @@ When multiple URNs match a request, select the one with highest specificity usin
 **Total specificity** = sum of all tag scores
 
 Examples:
-- `cap:op=generate;ext=pdf` → 3 + 3 = 6
-- `cap:op=generate;ext=*` → 3 + 2 = 5
-- `cap:op=generate;ext` → 3 + 2 = 5 (value-less = must-have-any)
+- `cap:generate;ext=pdf` → 3 + 3 = 6
+- `cap:generate;ext=*` → 3 + 2 = 5
+- `cap:generate;ext` → 3 + 2 = 5 (value-less = must-have-any)
 - `cap:op=generate` → 3
 
 **Tie-breaking:** Compare tuples `(exact_count, must_have_any_count, must_not_count)` lexicographically.

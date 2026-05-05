@@ -22,9 +22,9 @@ Tagged URNs use a flat tag-based format: `cap:tag1=value1;tag2=value2;tag3=value
 
 **Examples:**
 ```
-cap:op=extract;target=metadata;ext=pdf
+cap:extract;target=metadata;ext=pdf
 cap:image;format=png;quality=high
-cap:op=generate;target=thumbnail;output=binary
+cap:generate;target=thumbnail;output=binary
 ```
 
 **Special Values:**
@@ -37,12 +37,12 @@ cap:op=generate;target=thumbnail;output=binary
 | (missing) | No constraint (same as `?`) | |
 
 **Value-less Tags:**
-- Tags without values mean must-have-any: `cap:op=extract;optimize` equals `cap:op=extract;optimize=*`
+- Tags without values mean must-have-any: `cap:extract;optimize` equals `cap:extract;optimize=*`
 - Useful for asserting tag presence: `cap:premium;feature=export`
 
 **Specificity:**
 - Graded scoring: exact value (3) > must-have-any (2) > must-not-have (1) > unspecified (0)
-- `cap:op=extract;ext=pdf` (specificity 6) is more specific than `cap:op=extract;ext=*` (specificity 5)
+- `cap:extract;ext=pdf` (specificity 6) is more specific than `cap:extract;ext=*` (specificity 5)
 
 ## Usage
 
@@ -50,7 +50,7 @@ cap:op=generate;target=thumbnail;output=binary
 use tagged_urn::{TaggedUrn, TaggedUrnBuilder};
 
 // Create from string
-let urn = TaggedUrn::from_string("cap:op=extract;target=metadata")?;
+let urn = TaggedUrn::from_string("cap:extract;target=metadata")?;
 
 // Build with builder pattern
 let urn = TaggedUrnBuilder::new()
@@ -60,7 +60,7 @@ let urn = TaggedUrnBuilder::new()
     .build()?;
 
 // Check matching - does instance conform to pattern's constraints?
-let pattern = TaggedUrn::from_string("cap:op=extract")?;
+let pattern = TaggedUrn::from_string("cap:extract")?;
 if urn.conforms_to(&pattern)? {
     println!("URN conforms to pattern");
 }
@@ -76,8 +76,8 @@ if urn.is_more_specific_than(&request) {
 ### Matching
 
 ```rust
-let instance = TaggedUrn::from_string("cap:op=extract;target=metadata;ext=pdf")?;
-let pattern = TaggedUrn::from_string("cap:op=extract")?;
+let instance = TaggedUrn::from_string("cap:extract;target=metadata;ext=pdf")?;
+let pattern = TaggedUrn::from_string("cap:extract")?;
 
 // instance.conforms_to(pattern) - does instance satisfy pattern's constraints?
 if instance.conforms_to(&pattern)? {
@@ -93,8 +93,8 @@ if pattern.accepts(&instance)? {
 ### Specificity Comparison
 
 ```rust
-let general = TaggedUrn::from_string("cap:op=extract")?;
-let specific = TaggedUrn::from_string("cap:op=extract;ext=pdf")?;
+let general = TaggedUrn::from_string("cap:extract")?;
+let specific = TaggedUrn::from_string("cap:extract;ext=pdf")?;
 
 if specific.is_more_specific_than(&general) {
     println!("Specific URN preferred");
