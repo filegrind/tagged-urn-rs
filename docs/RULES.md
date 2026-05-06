@@ -164,7 +164,7 @@ Result:   MATCH
 
 # Example 2: Pattern has no constraint on ext
 Instance: cap:generate;ext=pdf
-Pattern:  cap:op=generate
+Pattern:  cap:generate;in=media:;out=media:
 Result:   MATCH (missing tag = no constraint)
 
 # Example 3: Instance has extra tags
@@ -183,7 +183,7 @@ Pattern:  cap:generate;ext=docx
 Result:   NO MATCH (pdf ≠ docx)
 
 # Example 6: Must-not-have satisfied
-Instance: cap:op=generate
+Instance: cap:generate;in=media:;out=media:
 Pattern:  cap:generate;debug=!
 Result:   MATCH (instance lacks debug, pattern wants it absent)
 
@@ -193,7 +193,7 @@ Pattern:  cap:generate;debug=!
 Result:   NO MATCH (instance has debug, pattern wants it absent)
 
 # Example 8: Must-have-any not satisfied
-Instance: cap:op=generate
+Instance: cap:generate;in=media:;out=media:
 Pattern:  cap:generate;ext=*
 Result:   NO MATCH (instance lacks ext, pattern requires it)
 
@@ -221,10 +221,10 @@ When multiple URNs match a request, select the one with highest specificity usin
 **Total specificity** = sum of all tag scores
 
 Examples:
-- `cap:generate;ext=pdf` → 3 + 3 = 6
-- `cap:generate;ext=*` → 3 + 2 = 5
-- `cap:generate;ext` → 3 + 2 = 5 (value-less = must-have-any)
-- `cap:op=generate` → 3
+- `cap:format=mp4;ext=pdf` → 3 + 3 = 6 (two exact-valued tags)
+- `cap:format=mp4;ext=*` → 3 + 2 = 5 (one exact, one must-have-any)
+- `cap:format=mp4;ext` → 3 + 2 = 5 (value-less marker = must-have-any)
+- `cap:generate` → 2 (one marker = must-have-any)
 
 **Tie-breaking:** Compare tuples `(exact_count, must_have_any_count, must_not_count)` lexicographically.
 
