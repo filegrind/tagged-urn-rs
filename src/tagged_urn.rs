@@ -980,8 +980,11 @@ mod tests {
     // TEST503: Normalize prefix to lowercase regardless of input case
     #[test]
     fn test_prefix_case_insensitive() {
+        // Three URNs differing only in prefix case (CAP, cap, Cap) — all
+        // must normalize to the same `cap` prefix and be equal once
+        // parsed. Tag content is identical across all three.
         let urn1 = TaggedUrn::from_string("CAP:test").unwrap();
-        let urn2 = TaggedUrn::from_string("cap:in=media:;out=media:;test").unwrap();
+        let urn2 = TaggedUrn::from_string("cap:test").unwrap();
         let urn3 = TaggedUrn::from_string("Cap:test").unwrap();
 
         assert_eq!(urn1.get_prefix(), "cap");
@@ -1032,9 +1035,10 @@ mod tests {
         assert_eq!(urn.get_tag("ext"), Some(&"pdf".to_string()));
         assert_eq!(urn.get_tag("target"), Some(&"thumbnail".to_string()));
 
-        // Key lookup is case-insensitive
-        assert_eq!(urn.get_tag("OP"), Some(&"generate".to_string()));
-        assert_eq!(urn.get_tag("Op"), Some(&"generate".to_string()));
+        // Key lookup is case-insensitive (try uppercase variations of an
+        // existing key — `EXT` and `Ext` resolve to the same `ext` value).
+        assert_eq!(urn.get_tag("EXT"), Some(&"pdf".to_string()));
+        assert_eq!(urn.get_tag("Ext"), Some(&"pdf".to_string()));
 
         // Both URNs parse to same lowercase values (same tags, same values)
         let urn2 = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
@@ -1330,17 +1334,17 @@ mod tests {
     // TEST523: Compute graded specificity scores and tuples for URN tags
     #[test]
     fn test_specificity() {
-        // NEW GRADED SPECIFICITY:
+        // GRADED SPECIFICITY:
         // K=v (exact value): 3 points
         // K=* (must-have-any): 2 points
         // K=! (must-not-have): 1 point
         // K=? (unspecified): 0 points
 
-        let urn1 = TaggedUrn::from_string("cap:general").unwrap(); // value-less = * = 2 points
-        let urn2 = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap(); // exact = 3 points
-        let urn3 = TaggedUrn::from_string("cap:op;ext=pdf").unwrap(); // * + exact = 2 + 3 = 5 points
-        let urn4 = TaggedUrn::from_string("cap:op=?").unwrap(); // ? = 0 points
-        let urn5 = TaggedUrn::from_string("cap:op=!").unwrap(); // ! = 1 point
+        let urn1 = TaggedUrn::from_string("cap:general").unwrap();    // 1 marker (general = *)
+        let urn2 = TaggedUrn::from_string("cap:ext=pdf").unwrap();    // 1 exact-valued tag
+        let urn3 = TaggedUrn::from_string("cap:gen;ext=pdf").unwrap(); // 1 marker + 1 exact
+        let urn4 = TaggedUrn::from_string("cap:ext=?").unwrap();      // 1 unspecified
+        let urn5 = TaggedUrn::from_string("cap:ext=!").unwrap();      // 1 must-not-have
 
         assert_eq!(urn1.specificity(), 2); // * = 2
         assert_eq!(urn2.specificity(), 3); // exact = 3
@@ -1360,7 +1364,7 @@ mod tests {
     #[test]
     fn test_builder() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("op", "generate").unwrap()
+            .marker("generate")
             .tag("target", "thumbnail").unwrap()
             .tag("ext", "pdf").unwrap()
             .tag("output", "binary").unwrap()
@@ -1886,16 +1890,16 @@ mod tests {
     // TEST560: Score value-less wildcard tags with graded specificity
     #[test]
     fn test_valueless_tag_specificity() {
-        // NEW GRADED SPECIFICITY:
-        // K=v (exact): 3, K=* (must-have-any): 2, K=! (must-not): 1, K=? (unspecified): 0
+        // GRADED SPECIFICITY:
+        // K=v (exact): 3, K=* (must-have-any / marker): 2, K=! (must-not): 1, K=? (unspecified): 0
 
-        let urn1 = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap();
-        let urn2 = TaggedUrn::from_string("cap:generate;in=media:;optimize;out=media:").unwrap(); // optimize = *
-        let urn3 = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
+        let urn1 = TaggedUrn::from_string("cap:generate").unwrap();          // 1 marker
+        let urn2 = TaggedUrn::from_string("cap:generate;optimize").unwrap(); // 2 markers
+        let urn3 = TaggedUrn::from_string("cap:ext=pdf;generate").unwrap();  // 1 marker + 1 exact
 
-        assert_eq!(urn1.specificity(), 3);  // 1 exact = 3
-        assert_eq!(urn2.specificity(), 5);  // 1 exact + 1 * = 3 + 2 = 5
-        assert_eq!(urn3.specificity(), 6);  // 2 exact = 3 + 3 = 6
+        assert_eq!(urn1.specificity(), 2); // 1 marker = 2
+        assert_eq!(urn2.specificity(), 4); // 2 markers = 2 + 2 = 4
+        assert_eq!(urn3.specificity(), 5); // 1 marker + 1 exact = 2 + 3 = 5
     }
 
     // TEST561: Round-trip value-less tags through parse and serialize
@@ -2373,7 +2377,7 @@ mod tests {
     #[test]
     fn test587_builder_fluent_api() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("op", "generate").unwrap()
+            .marker("generate")
             .tag("target", "thumbnail").unwrap()
             .tag("format", "pdf").unwrap()
             .tag("output", "binary").unwrap()
@@ -2392,7 +2396,7 @@ mod tests {
         let urn = TaggedUrnBuilder::new("cap")
             .tag("engine", "v2").unwrap()
             .tag("quality", "high").unwrap()
-            .tag("op", "compress").unwrap()
+            .marker("compress")
             .build()
             .unwrap();
 
@@ -2405,7 +2409,7 @@ mod tests {
     #[test]
     fn test589_builder_tag_overrides() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("op", "convert").unwrap()
+            .marker("convert")
             .tag("format", "jpg").unwrap()
             .build()
             .unwrap();
@@ -2444,7 +2448,7 @@ mod tests {
     fn test592_builder_complex() {
         let urn = TaggedUrnBuilder::new("cap")
             .tag("type", "media").unwrap()
-            .tag("op", "transcode").unwrap()
+            .marker("transcode")
             .tag("target", "video").unwrap()
             .tag("format", "mp4").unwrap()
             .tag("codec", "h264").unwrap()
@@ -2463,28 +2467,28 @@ mod tests {
         assert_eq!(urn.get_tag("framerate"), Some(&"30fps".to_string()));
         assert_eq!(urn.get_tag("output"), Some(&"binary".to_string()));
 
-        // NEW GRADED SPECIFICITY: 8 exact values × 3 points each = 24
-        assert_eq!(urn.specificity(), 24);
+        // GRADED SPECIFICITY: 7 exact-valued tags × 3 + 1 marker (transcode) × 2 = 21 + 2 = 23
+        assert_eq!(urn.specificity(), 23);
     }
 
     // TEST593: Builder with wildcards
     #[test]
     fn test593_builder_wildcards() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("op", "convert").unwrap()
-            .tag("ext", "*").unwrap() // Wildcard
-            .tag("quality", "*").unwrap() // Wildcard
+            .marker("convert")
+            .marker("ext")
+            .marker("quality")
             .build()
             .unwrap();
 
-        // Wildcards serialize as value-less
-        assert_eq!(urn.to_string(), "cap:convert;ext;in=media:;out=media:;quality");
-        // NEW GRADED SPECIFICITY: convert (exact) = 3, ext=* = 2, quality=* = 2
-        // Total = 3 + 2 + 2 = 7
-        assert_eq!(urn.specificity(), 7);
+        // All three markers serialize as value-less, sorted alphabetically.
+        assert_eq!(urn.to_string(), "cap:convert;ext;quality");
+        // GRADED SPECIFICITY: 3 markers × 2 points each = 6
+        assert_eq!(urn.specificity(), 6);
 
-        assert_eq!(urn.get_tag("ext"), Some(&"*".to_string()));
-        assert_eq!(urn.get_tag("quality"), Some(&"*".to_string()));
+        assert!(urn.has_marker_tag("convert"));
+        assert!(urn.has_marker_tag("ext"));
+        assert!(urn.has_marker_tag("quality"));
     }
 
     // TEST594: Builder with custom prefix
