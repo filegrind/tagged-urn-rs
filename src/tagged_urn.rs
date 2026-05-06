@@ -919,7 +919,7 @@ impl TaggedUrnBuilder {
     }
 
 	/// Add a tag with key (normalized to lowercase) and wildcard value
-    pub fn solo_tag(mut self, key: &str) -> Self {
+    pub fn marker(mut self, key: &str) -> Self {
         self.tags.insert(key.to_lowercase(), "*".to_string());
         self
     }
