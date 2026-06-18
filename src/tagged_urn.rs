@@ -2776,7 +2776,7 @@ mod tests {
     #[test]
     fn test581_incomparable_different_branches() {
         let pdf = TaggedUrn::from_string("media:pdf").unwrap();
-        let txt = TaggedUrn::from_string("media:txt;textable").unwrap();
+        let txt = TaggedUrn::from_string("media:textable;txt").unwrap();
         // pdf.accepts(txt) = false (pdf missing from txt)
         // txt.accepts(pdf) = false (txt missing from pdf)
         // OR → false
@@ -2830,7 +2830,7 @@ mod tests {
         assert!(urn.is_equivalent_str("media:pdf").unwrap()); // same tags
         assert!(!urn.is_equivalent_str("media:").unwrap()); // different
         assert!(urn.is_comparable_str("media:").unwrap()); // on same chain
-        assert!(!urn.is_comparable_str("media:txt;textable").unwrap()); // different branch
+        assert!(!urn.is_comparable_str("media:textable;txt").unwrap()); // different branch
     }
 
     // TEST586: Special values (*, !, ?) with is_equivalent and is_comparable
