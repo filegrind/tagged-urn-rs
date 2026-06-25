@@ -1461,9 +1461,9 @@ impl TaggedUrnBuilder {
 mod tests {
     use super::*;
 
-    // TEST501: Create tagged URN from string and verify prefix and tag values
+    // TEST0501: Create tagged URN from string and verify prefix and tag values
     #[test]
-    fn test_tagged_urn_creation() {
+    fn test0501_tagged_urn_creation() {
         let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
         assert_eq!(urn.get_prefix(), "cap");
         assert!(urn.has_marker_tag("generate"));
@@ -1471,18 +1471,18 @@ mod tests {
         assert_eq!(urn.get_tag("ext"), Some(&"pdf".to_string()));
     }
 
-    // TEST502: Parse URN with custom prefix and verify serialization
+    // TEST0502: Parse URN with custom prefix and verify serialization
     #[test]
-    fn test_custom_prefix() {
+    fn test0502_custom_prefix() {
         let urn = TaggedUrn::from_string("myapp:generate;ext=pdf").unwrap();
         assert_eq!(urn.get_prefix(), "myapp");
         assert!(urn.has_marker_tag("generate"));
         assert_eq!(urn.to_string(), "myapp:ext=pdf;generate");
     }
 
-    // TEST503: Normalize prefix to lowercase regardless of input case
+    // TEST0503: Normalize prefix to lowercase regardless of input case
     #[test]
-    fn test_prefix_case_insensitive() {
+    fn test0503_prefix_case_insensitive() {
         // Three URNs differing only in prefix case (CAP, cap, Cap) — all
         // must normalize to the same `cap` prefix and be equal once
         // parsed. Tag content is identical across all three.
@@ -1497,9 +1497,9 @@ mod tests {
         assert_eq!(urn2, urn3);
     }
 
-    // TEST504: Return PrefixMismatch error when comparing URNs with different prefixes
+    // TEST0504: Return PrefixMismatch error when comparing URNs with different prefixes
     #[test]
-    fn test_prefix_mismatch_error() {
+    fn test0504_prefix_mismatch_error() {
         let urn1 = TaggedUrn::from_string("cap:in=media:;out=media:;test").unwrap();
         let urn2 = TaggedUrn::from_string("myapp:test").unwrap();
 
@@ -1515,9 +1515,9 @@ mod tests {
         }
     }
 
-    // TEST505: Build URN with custom prefix using TaggedUrnBuilder
+    // TEST0505: Build URN with custom prefix using TaggedUrnBuilder
     #[test]
-    fn test_builder_with_prefix() {
+    fn test0505_builder_with_prefix() {
         let urn = TaggedUrnBuilder::new("custom")
             .tag("key", "value").expect("builder tag fixture must be valid")
             .build()
@@ -1527,9 +1527,9 @@ mod tests {
         assert_eq!(urn.to_string(), "custom:key=value");
     }
 
-    // TEST506: Normalize unquoted keys and values to lowercase
+    // TEST0506: Normalize unquoted keys and values to lowercase
     #[test]
-    fn test_unquoted_values_lowercased() {
+    fn test0506_unquoted_values_lowercased() {
         // Unquoted values are normalized to lowercase
         let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
 
@@ -1549,9 +1549,9 @@ mod tests {
         assert_eq!(urn, urn2);
     }
 
-    // TEST507: Preserve original case for quoted values while lowercasing keys
+    // TEST0507: Preserve original case for quoted values while lowercasing keys
     #[test]
-    fn test_quoted_values_preserve_case() {
+    fn test0507_quoted_values_preserve_case() {
         // Quoted values preserve their case
         let urn = TaggedUrn::from_string(r#"cap:key="Value With Spaces""#).unwrap();
         assert_eq!(urn.get_tag("key"), Some(&"Value With Spaces".to_string()));
@@ -1568,9 +1568,9 @@ mod tests {
         assert_ne!(unquoted, quoted); // NOT equal
     }
 
-    // TEST508: Parse quoted values containing semicolons, equals signs, and spaces
+    // TEST0508: Parse quoted values containing semicolons, equals signs, and spaces
     #[test]
-    fn test_quoted_value_special_chars() {
+    fn test0508_quoted_value_special_chars() {
         // Semicolons in quoted values
         let urn = TaggedUrn::from_string(r#"cap:key="value;with;semicolons""#).unwrap();
         assert_eq!(urn.get_tag("key"), Some(&"value;with;semicolons".to_string()));
@@ -1584,9 +1584,9 @@ mod tests {
         assert_eq!(urn3.get_tag("key"), Some(&"hello world".to_string()));
     }
 
-    // TEST509: Parse escape sequences for quotes and backslashes in quoted values
+    // TEST0509: Parse escape sequences for quotes and backslashes in quoted values
     #[test]
-    fn test_quoted_value_escape_sequences() {
+    fn test0509_quoted_value_escape_sequences() {
         // Escaped quotes
         let urn = TaggedUrn::from_string(r#"cap:key="value\"quoted\"""#).unwrap();
         assert_eq!(urn.get_tag("key"), Some(&r#"value"quoted""#.to_string()));
@@ -1600,17 +1600,17 @@ mod tests {
         assert_eq!(urn3.get_tag("key"), Some(&r#"say "hello\world""#.to_string()));
     }
 
-    // TEST510: Parse URN with both quoted and unquoted tag values
+    // TEST0510: Parse URN with both quoted and unquoted tag values
     #[test]
-    fn test_mixed_quoted_unquoted() {
+    fn test0510_mixed_quoted_unquoted() {
         let urn = TaggedUrn::from_string(r#"cap:a="Quoted";b=simple"#).unwrap();
         assert_eq!(urn.get_tag("a"), Some(&"Quoted".to_string()));
         assert_eq!(urn.get_tag("b"), Some(&"simple".to_string()));
     }
 
-    // TEST511: Reject unterminated quoted value with appropriate error
+    // TEST0511: Reject unterminated quoted value with appropriate error
     #[test]
-    fn test_unterminated_quote_error() {
+    fn test0511_unterminated_quote_error() {
         let result = TaggedUrn::from_string(r#"cap:key="unterminated"#);
         assert!(result.is_err());
         if let Err(e) = result {
@@ -1618,9 +1618,9 @@ mod tests {
         }
     }
 
-    // TEST512: Reject invalid escape sequences in quoted values
+    // TEST0512: Reject invalid escape sequences in quoted values
     #[test]
-    fn test_invalid_escape_sequence_error() {
+    fn test0512_invalid_escape_sequence_error() {
         let result = TaggedUrn::from_string(r#"cap:key="bad\n""#);
         assert!(result.is_err());
         if let Err(e) = result {
@@ -1635,9 +1635,9 @@ mod tests {
         }
     }
 
-    // TEST513: Apply smart quoting during serialization based on value content
+    // TEST0513: Apply smart quoting during serialization based on value content
     #[test]
-    fn test_serialization_smart_quoting() {
+    fn test0513_serialization_smart_quoting() {
         // Simple lowercase value - no quoting needed
         let urn = TaggedUrnBuilder::new("cap")
             .tag("key", "simple").expect("simple key fixture must be valid")
@@ -1681,9 +1681,9 @@ mod tests {
         assert_eq!(urn6.to_string(), r#"cap:key="path\\file""#);
     }
 
-    // TEST514: Round-trip parse and serialize a simple URN
+    // TEST0514: Round-trip parse and serialize a simple URN
     #[test]
-    fn test_round_trip_simple() {
+    fn test0514_round_trip_simple() {
         let original = "cap:ext=pdf;generate;in=media:;out=media:";
         let urn = TaggedUrn::from_string(original).unwrap();
         let serialized = urn.to_string();
@@ -1691,9 +1691,9 @@ mod tests {
         assert_eq!(urn, reparsed);
     }
 
-    // TEST515: Round-trip parse and serialize a URN with quoted values
+    // TEST0515: Round-trip parse and serialize a URN with quoted values
     #[test]
-    fn test_round_trip_quoted() {
+    fn test0515_round_trip_quoted() {
         let original = r#"cap:key="Value With Spaces""#;
         let urn = TaggedUrn::from_string(original).unwrap();
         let serialized = urn.to_string();
@@ -1702,9 +1702,9 @@ mod tests {
         assert_eq!(reparsed.get_tag("key"), Some(&"Value With Spaces".to_string()));
     }
 
-    // TEST516: Round-trip parse and serialize a URN with escape sequences
+    // TEST0516: Round-trip parse and serialize a URN with escape sequences
     #[test]
-    fn test_round_trip_escapes() {
+    fn test0516_round_trip_escapes() {
         let original = r#"cap:key="value\"with\\escapes""#;
         let urn = TaggedUrn::from_string(original).unwrap();
         assert_eq!(urn.get_tag("key"), Some(&r#"value"with\escapes"#.to_string()));
@@ -1713,9 +1713,9 @@ mod tests {
         assert_eq!(urn, reparsed);
     }
 
-    // TEST517: Require a prefix in URN string and reject missing prefix
+    // TEST0517: Require a prefix in URN string and reject missing prefix
     #[test]
-    fn test_prefix_required() {
+    fn test0517_prefix_required() {
         // Missing prefix should fail
         assert!(TaggedUrn::from_string("generate;ext=pdf").is_err());
 
@@ -1728,9 +1728,9 @@ mod tests {
         assert!(urn2.has_marker_tag("generate"));
     }
 
-    // TEST518: Treat trailing semicolon as equivalent to no trailing semicolon
+    // TEST0518: Treat trailing semicolon as equivalent to no trailing semicolon
     #[test]
-    fn test_trailing_semicolon_equivalence() {
+    fn test0518_trailing_semicolon_equivalence() {
         // Both with and without trailing semicolon should be equivalent
         let urn1 = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
         let urn2 = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;").unwrap();
@@ -1760,9 +1760,9 @@ mod tests {
         assert!(urn2.conforms_to(&urn1).unwrap());
     }
 
-    // TEST519: Serialize tags in alphabetical order as canonical string format
+    // TEST0519: Serialize tags in alphabetical order as canonical string format
     #[test]
-    fn test_canonical_string_format() {
+    fn test0519_canonical_string_format() {
         let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail").unwrap();
         // Should be sorted alphabetically and have no trailing semicolon in canonical form
         // Alphabetical order: ext < op < target
@@ -1772,9 +1772,9 @@ mod tests {
         );
     }
 
-    // TEST520: Match tags with exact values, subsets, wildcards, and mismatches
+    // TEST0520: Match tags with exact values, subsets, wildcards, and mismatches
     #[test]
-    fn test_tag_matching() {
+    fn test0520_tag_matching() {
         let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
 
         // Exact match
@@ -1795,9 +1795,9 @@ mod tests {
         assert!(!urn.conforms_to(&request4).unwrap());
     }
 
-    // TEST521: Enforce case-sensitive matching for quoted tag values
+    // TEST0521: Enforce case-sensitive matching for quoted tag values
     #[test]
-    fn test_matching_case_sensitive_values() {
+    fn test0521_matching_case_sensitive_values() {
         // Values with different case should NOT match
         let urn1 = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
         let urn2 = TaggedUrn::from_string(r#"cap:key="value""#).unwrap();
@@ -1809,9 +1809,9 @@ mod tests {
         assert!(urn1.conforms_to(&urn3).unwrap());
     }
 
-    // TEST522: Handle missing tags in instance vs pattern matching semantics
+    // TEST0522: Handle missing tags in instance vs pattern matching semantics
     #[test]
-    fn test_missing_tag_handling() {
+    fn test0522_missing_tag_handling() {
         // NEW SEMANTICS: Missing tag in instance means the tag doesn't exist.
         // Pattern constraints must be satisfied by instance.
 
@@ -1837,9 +1837,9 @@ mod tests {
         assert!(!urn.conforms_to(&pattern4).unwrap()); // Instance missing ext, pattern requires ext to be present
     }
 
-    // TEST523: Compute graded specificity scores and tuples for URN tags
+    // TEST0523: Compute graded specificity scores and tuples for URN tags
     #[test]
-    fn test_specificity() {
+    fn test0523_specificity() {
         // Six-form per-tag specificity ladder:
         //   ?x        : 0  (no constraint)
         //   x?=v      : 1  (absent OR not v)
@@ -1874,9 +1874,9 @@ mod tests {
         assert!(urn2.is_more_specific_than(&urn1).unwrap()); // exact(4) > marker(2)
     }
 
-    // TEST524: Build URN with multiple tags using TaggedUrnBuilder
+    // TEST0524: Build URN with multiple tags using TaggedUrnBuilder
     #[test]
-    fn test_builder() {
+    fn test0524_builder() {
         let urn = TaggedUrnBuilder::new("cap")
             .marker("generate").expect("generate marker fixture must be valid")
             .tag("target", "thumbnail").expect("target fixture must be valid")
@@ -1889,9 +1889,9 @@ mod tests {
         assert_eq!(urn.get_tag("output"), Some(&"binary".to_string()));
     }
 
-    // TEST525: Preserve value case in builder while lowercasing keys
+    // TEST0525: Preserve value case in builder while lowercasing keys
     #[test]
-    fn test_builder_preserves_case() {
+    fn test0525_builder_preserves_case() {
         let urn = TaggedUrnBuilder::new("cap")
             .tag("KEY", "ValueWithCase").expect("case-preserving fixture must be valid")
             .build()
@@ -1903,9 +1903,9 @@ mod tests {
         assert_eq!(urn.to_string(), r#"cap:key="ValueWithCase""#);
     }
 
-    // TEST526: Verify directional accepts between patterns with shared and disjoint tags
+    // TEST0526: Verify directional accepts between patterns with shared and disjoint tags
     #[test]
-    fn test_directional_accepts_with_tag_overlap() {
+    fn test0526_directional_accepts_with_tag_overlap() {
         let specific = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
         let general = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap();
         let different = TaggedUrn::from_string("cap:extract;image;in=media:;out=media:").unwrap();
@@ -1931,9 +1931,9 @@ mod tests {
         assert!(wildcard.accepts(&full_instance).unwrap());
     }
 
-    // TEST527: Find best matching URN by specificity from a list of candidates
+    // TEST0527: Find best matching URN by specificity from a list of candidates
     #[test]
-    fn test_best_match() {
+    fn test0527_best_match() {
         let urns = vec![
             TaggedUrn::from_string("cap:op").unwrap(),
             TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap(),
@@ -1948,9 +1948,9 @@ mod tests {
         assert_eq!(best.to_string(), "cap:ext=pdf;generate;in=media:;out=media:");
     }
 
-    // TEST528: Merge two URNs and extract a subset of tags
+    // TEST0528: Merge two URNs and extract a subset of tags
     #[test]
-    fn test_merge_and_subset() {
+    fn test0528_merge_and_subset() {
         let urn1 = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap();
         let urn2 = TaggedUrn::from_string("cap:ext=pdf;output=binary").unwrap();
 
@@ -1965,9 +1965,9 @@ mod tests {
         assert_eq!(subset.to_string(), "cap:ext=pdf");
     }
 
-    // TEST529: Reject merge of URNs with different prefixes
+    // TEST0529: Reject merge of URNs with different prefixes
     #[test]
-    fn test_merge_prefix_mismatch() {
+    fn test0529_merge_prefix_mismatch() {
         let urn1 = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap();
         let urn2 = TaggedUrn::from_string("myapp:ext=pdf").unwrap();
 
@@ -1976,9 +1976,9 @@ mod tests {
         assert!(matches!(result.unwrap_err(), TaggedUrnError::PrefixMismatch { .. }));
     }
 
-    // TEST530: Convert specific tag value to wildcard and verify matching behavior
+    // TEST0530: Convert specific tag value to wildcard and verify matching behavior
     #[test]
-    fn test_wildcard_tag() {
+    fn test0530_wildcard_tag() {
         let urn = TaggedUrn::from_string("cap:ext=pdf").unwrap();
         let wildcarded = urn.clone().with_wildcard_tag("ext");
 
@@ -1991,9 +1991,9 @@ mod tests {
         assert!(wildcarded.conforms_to(&TaggedUrn::from_string("cap:ext").unwrap()).unwrap());
     }
 
-    // TEST531: Handle empty tagged URN with no tags in matching and serialization
+    // TEST0531: Handle empty tagged URN with no tags in matching and serialization
     #[test]
-    fn test_empty_tagged_urn() {
+    fn test0531_empty_tagged_urn() {
         // Empty tagged URN is valid
         let empty_urn = TaggedUrn::from_string("cap:").unwrap();
         assert_eq!(empty_urn.tags.len(), 0);
@@ -2021,18 +2021,18 @@ mod tests {
         assert_eq!(empty_urn2.tags.len(), 0);
     }
 
-    // TEST532: Create empty URN with custom prefix
+    // TEST0532: Create empty URN with custom prefix
     #[test]
-    fn test_empty_with_custom_prefix() {
+    fn test0532_empty_with_custom_prefix() {
         let empty_urn = TaggedUrn::from_string("myapp:").unwrap();
         assert_eq!(empty_urn.get_prefix(), "myapp");
         assert_eq!(empty_urn.tags.len(), 0);
         assert_eq!(empty_urn.to_string(), "myapp:");
     }
 
-    // TEST533: Parse forward slashes and colons in unquoted tag values
+    // TEST0533: Parse forward slashes and colons in unquoted tag values
     #[test]
-    fn test_extended_character_support() {
+    fn test0533_extended_character_support() {
         // Test forward slashes and colons in tag components
         let urn = TaggedUrn::from_string("cap:url=https://example_org/api;path=/some/file").unwrap();
         assert_eq!(
@@ -2042,9 +2042,9 @@ mod tests {
         assert_eq!(urn.get_tag("path"), Some(&"/some/file".to_string()));
     }
 
-    // TEST534: Reject wildcard in keys but accept wildcard in values
+    // TEST0534: Reject wildcard in keys but accept wildcard in values
     #[test]
-    fn test_wildcard_restrictions() {
+    fn test0534_wildcard_restrictions() {
         // Wildcard should be rejected in keys
         assert!(TaggedUrn::from_string("cap:*=value").is_err());
 
@@ -2053,9 +2053,9 @@ mod tests {
         assert_eq!(urn.get_tag("key"), Some(&"*".to_string()));
     }
 
-    // TEST535: Reject duplicate keys in URN string
+    // TEST0535: Reject duplicate keys in URN string
     #[test]
-    fn test_duplicate_key_rejection() {
+    fn test0535_duplicate_key_rejection() {
         let result = TaggedUrn::from_string("cap:key=value1;key=value2");
         assert!(result.is_err());
         if let Err(e) = result {
@@ -2063,9 +2063,9 @@ mod tests {
         }
     }
 
-    // TEST536: Reject purely numeric keys but allow mixed alphanumeric keys
+    // TEST0536: Reject purely numeric keys but allow mixed alphanumeric keys
     #[test]
-    fn test_numeric_key_restriction() {
+    fn test0536_numeric_key_restriction() {
         // Pure numeric keys should be rejected
         assert!(TaggedUrn::from_string("cap:123=value").is_err());
 
@@ -2077,16 +2077,16 @@ mod tests {
         assert!(TaggedUrn::from_string("cap:key=123").is_ok());
     }
 
-    // TEST537: Reject empty value after equals sign
+    // TEST0537: Reject empty value after equals sign
     #[test]
-    fn test_empty_value_error() {
+    fn test0537_empty_value_error() {
         assert!(TaggedUrn::from_string("cap:key=").is_err());
         assert!(TaggedUrn::from_string("cap:key=;other=value").is_err());
     }
 
-    // TEST538: Verify has_tag uses case-sensitive value comparison and case-insensitive key lookup
+    // TEST0538: Verify has_tag uses case-sensitive value comparison and case-insensitive key lookup
     #[test]
-    fn test_has_tag_case_sensitive() {
+    fn test0538_has_tag_case_sensitive() {
         let urn = TaggedUrn::from_string(r#"cap:key="Value""#).unwrap();
 
         // Exact case match works
@@ -2101,16 +2101,16 @@ mod tests {
         assert!(urn.has_tag("Key", "Value"));
     }
 
-    // TEST539: Preserve value case when adding tag with with_tag method
+    // TEST0539: Preserve value case when adding tag with with_tag method
     #[test]
-    fn test_with_tag_preserves_value() {
+    fn test0539_with_tag_preserves_value() {
         let urn = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "ValueWithCase".to_string()).unwrap();
         assert_eq!(urn.get_tag("key"), Some(&"ValueWithCase".to_string()));
     }
 
-    // TEST540: Reject empty value string in with_tag method
+    // TEST0540: Reject empty value string in with_tag method
     #[test]
-    fn test_with_tag_rejects_empty_value() {
+    fn test0540_with_tag_rejects_empty_value() {
         let result = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "".to_string());
         assert!(result.is_err());
         if let Err(TaggedUrnError::EmptyTagComponent(msg)) = result {
@@ -2120,9 +2120,9 @@ mod tests {
         }
     }
 
-    // TEST541: Reject empty value string in builder tag method
+    // TEST0541: Reject empty value string in builder tag method
     #[test]
-    fn test_builder_rejects_empty_value() {
+    fn test0541_builder_rejects_empty_value() {
         let result = TaggedUrnBuilder::new("cap").tag("key", "");
         assert!(result.is_err());
         if let Err(TaggedUrnError::EmptyTagComponent(msg)) = result {
@@ -2132,9 +2132,9 @@ mod tests {
         }
     }
 
-    // TEST542: Treat quoted and unquoted simple lowercase values as semantically equivalent
+    // TEST0542: Treat quoted and unquoted simple lowercase values as semantically equivalent
     #[test]
-    fn test_semantic_equivalence() {
+    fn test0542_semantic_equivalence() {
         // Unquoted and quoted simple lowercase values are equivalent
         let unquoted = TaggedUrn::from_string("cap:key=simple").unwrap();
         let quoted = TaggedUrn::from_string(r#"cap:key="simple""#).unwrap();
@@ -2151,9 +2151,9 @@ mod tests {
     // All implementations (Rust, Go, JS, ObjC) must pass these identically
     // ============================================================================
 
-    // TEST543: Verify exact match when instance and pattern have identical tags
+    // TEST0543: Verify exact match when instance and pattern have identical tags
     #[test]
-    fn test_matching_semantics_test1_exact_match() {
+    fn test0543_matching_semantics_test1_exact_match() {
         // Test 1: Exact match
         // URN:     cap:ext=pdf;generate;in=media:;out=media:
         // Request: cap:ext=pdf;generate;in=media:;out=media:
@@ -2163,9 +2163,9 @@ mod tests {
         assert!(urn.conforms_to(&request).unwrap(), "Test 1: Exact match should succeed");
     }
 
-    // TEST544: Reject match when instance is missing a tag required by pattern
+    // TEST0544: Reject match when instance is missing a tag required by pattern
     #[test]
-    fn test_matching_semantics_test2_instance_missing_tag() {
+    fn test0544_matching_semantics_test2_instance_missing_tag() {
         // Test 2: Instance missing tag
         // Instance: cap:generate;in=media:;out=media:
         // Pattern:  cap:ext=pdf;generate;in=media:;out=media:
@@ -2182,9 +2182,9 @@ mod tests {
         assert!(instance.conforms_to(&pattern_optional).unwrap(), "Pattern with ext=? should match instance without ext");
     }
 
-    // TEST545: Match when instance has extra tags not constrained by pattern
+    // TEST0545: Match when instance has extra tags not constrained by pattern
     #[test]
-    fn test_matching_semantics_test3_urn_has_extra_tag() {
+    fn test0545_matching_semantics_test3_urn_has_extra_tag() {
         // Test 3: URN has extra tag
         // URN:     cap:ext=pdf;generate;in=media:;out=media:;version=2
         // Request: cap:ext=pdf;generate;in=media:;out=media:
@@ -2194,9 +2194,9 @@ mod tests {
         assert!(urn.conforms_to(&request).unwrap(), "Test 3: URN with extra tag should match");
     }
 
-    // TEST546: Match when pattern has wildcard accepting any value for a tag
+    // TEST0546: Match when pattern has wildcard accepting any value for a tag
     #[test]
-    fn test_matching_semantics_test4_request_has_wildcard() {
+    fn test0546_matching_semantics_test4_request_has_wildcard() {
         // Test 4: Request has wildcard
         // URN:     cap:ext=pdf;generate;in=media:;out=media:
         // Request: cap:ext;generate;in=media:;out=media:
@@ -2206,9 +2206,9 @@ mod tests {
         assert!(urn.conforms_to(&request).unwrap(), "Test 4: Request wildcard should match");
     }
 
-    // TEST547: Match when instance has wildcard satisfying pattern's specific value
+    // TEST0547: Match when instance has wildcard satisfying pattern's specific value
     #[test]
-    fn test_matching_semantics_test5_urn_has_wildcard() {
+    fn test0547_matching_semantics_test5_urn_has_wildcard() {
         // Test 5: URN has wildcard
         // URN:     cap:ext;generate;in=media:;out=media:
         // Request: cap:ext=pdf;generate;in=media:;out=media:
@@ -2218,9 +2218,9 @@ mod tests {
         assert!(urn.conforms_to(&request).unwrap(), "Test 5: URN wildcard should match");
     }
 
-    // TEST548: Reject match when tag values conflict between instance and pattern
+    // TEST0548: Reject match when tag values conflict between instance and pattern
     #[test]
-    fn test_matching_semantics_test6_value_mismatch() {
+    fn test0548_matching_semantics_test6_value_mismatch() {
         // Test 6: Value mismatch
         // URN:     cap:ext=pdf;generate;in=media:;out=media:
         // Request: cap:ext=docx;generate;in=media:;out=media:
@@ -2230,9 +2230,9 @@ mod tests {
         assert!(!urn.conforms_to(&request).unwrap(), "Test 6: Value mismatch should not match");
     }
 
-    // TEST549: Reject match when pattern requires a tag absent from instance
+    // TEST0549: Reject match when pattern requires a tag absent from instance
     #[test]
-    fn test_matching_semantics_test7_pattern_has_extra_tag() {
+    fn test0549_matching_semantics_test7_pattern_has_extra_tag() {
         // Test 7: Pattern has extra tag that instance doesn't have
         // Instance: cap:generate_thumbnail;in=media:;out=media:binary
         // Pattern:  cap:ext=wav;generate_thumbnail;in=media:;out=media:binary
@@ -2248,9 +2248,9 @@ mod tests {
         assert!(instance.conforms_to(&pattern_no_ext).unwrap());
     }
 
-    // TEST550: Match any instance against empty pattern with no constraints
+    // TEST0550: Match any instance against empty pattern with no constraints
     #[test]
-    fn test_matching_semantics_test8_empty_pattern_matches_anything() {
+    fn test0550_matching_semantics_test8_empty_pattern_matches_anything() {
         // Test 8: Empty PATTERN matches any INSTANCE
         // Instance: cap:ext=pdf;generate;in=media:;out=media:
         // Pattern:  cap:
@@ -2268,9 +2268,9 @@ mod tests {
         assert!(!empty_instance.conforms_to(&pattern).unwrap(), "Empty instance should NOT match pattern with requirements");
     }
 
-    // TEST551: Reject match when instance and pattern have non-overlapping tag dimensions
+    // TEST0551: Reject match when instance and pattern have non-overlapping tag dimensions
     #[test]
-    fn test_matching_semantics_test9_cross_dimension_constraints() {
+    fn test0551_matching_semantics_test9_cross_dimension_constraints() {
         // Test 9: Cross-dimension constraints
         // Instance: cap:generate;in=media:;out=media:
         // Pattern:  cap:ext=pdf
@@ -2287,9 +2287,9 @@ mod tests {
         assert!(instance2.conforms_to(&pattern2).unwrap(), "Instance with ext=pdf should match pattern requiring ext=pdf");
     }
 
-    // TEST552: Return error for conforms_to, accepts, and is_more_specific_than with different prefixes
+    // TEST0552: Return error for conforms_to, accepts, and is_more_specific_than with different prefixes
     #[test]
-    fn test_matching_different_prefixes_error() {
+    fn test0552_matching_different_prefixes_error() {
         // URNs with different prefixes should cause an error, not just return false
         let urn1 = TaggedUrn::from_string("cap:in=media:;out=media:;test").unwrap();
         let urn2 = TaggedUrn::from_string("other:test").unwrap();
@@ -2309,9 +2309,9 @@ mod tests {
     // Value-less tags are equivalent to wildcard tags (key=*)
     // ============================================================================
 
-    // TEST553: Parse single value-less tag as wildcard
+    // TEST0553: Parse single value-less tag as wildcard
     #[test]
-    fn test_valueless_tag_parsing_single() {
+    fn test0553_valueless_tag_parsing_single() {
         // Single value-less tag
         let urn = TaggedUrn::from_string("cap:optimize").unwrap();
         assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
@@ -2319,9 +2319,9 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:optimize");
     }
 
-    // TEST554: Parse multiple value-less tags and serialize alphabetically
+    // TEST0554: Parse multiple value-less tags and serialize alphabetically
     #[test]
-    fn test_valueless_tag_parsing_multiple() {
+    fn test0554_valueless_tag_parsing_multiple() {
         // Multiple value-less tags
         let urn = TaggedUrn::from_string("cap:fast;optimize;secure").unwrap();
         assert_eq!(urn.get_tag("fast"), Some(&"*".to_string()));
@@ -2331,9 +2331,9 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:fast;optimize;secure");
     }
 
-    // TEST555: Parse mix of value-less and valued tags together
+    // TEST0555: Parse mix of value-less and valued tags together
     #[test]
-    fn test_valueless_tag_mixed_with_valued() {
+    fn test0555_valueless_tag_mixed_with_valued() {
         // Mix of value-less and valued tags
         let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;optimize;out=media:;secure").unwrap();
         assert!(urn.has_marker_tag("generate"));
@@ -2344,9 +2344,9 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:ext=pdf;generate;in=media:;optimize;out=media:;secure");
     }
 
-    // TEST556: Parse value-less tag at end of URN without trailing semicolon
+    // TEST0556: Parse value-less tag at end of URN without trailing semicolon
     #[test]
-    fn test_valueless_tag_at_end() {
+    fn test0556_valueless_tag_at_end() {
         // Value-less tag at the end (no trailing semicolon)
         let urn = TaggedUrn::from_string("cap:generate;in=media:;optimize;out=media:").unwrap();
         assert!(urn.has_marker_tag("generate"));
@@ -2354,9 +2354,9 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:generate;in=media:;optimize;out=media:");
     }
 
-    // TEST557: Verify value-less tag is equivalent to explicit wildcard (key=*)
+    // TEST0557: Verify value-less tag is equivalent to explicit wildcard (key=*)
     #[test]
-    fn test_valueless_tag_equivalence_to_wildcard() {
+    fn test0557_valueless_tag_equivalence_to_wildcard() {
         // Value-less tag is equivalent to explicit wildcard
         let valueless = TaggedUrn::from_string("cap:ext").unwrap();
         let wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
@@ -2366,9 +2366,9 @@ mod tests {
         assert_eq!(wildcard.to_string(), "cap:ext");
     }
 
-    // TEST558: Match value-less wildcard tag against any specific value
+    // TEST0558: Match value-less wildcard tag against any specific value
     #[test]
-    fn test_valueless_tag_matching() {
+    fn test0558_valueless_tag_matching() {
         // Value-less tag (wildcard) matches any value
         let urn = TaggedUrn::from_string("cap:ext;generate;in=media:;out=media:").unwrap();
 
@@ -2381,9 +2381,9 @@ mod tests {
         assert!(urn.conforms_to(&request_any).unwrap());
     }
 
-    // TEST559: Require value-less tag in pattern to be present in instance
+    // TEST0559: Require value-less tag in pattern to be present in instance
     #[test]
-    fn test_valueless_tag_in_pattern() {
+    fn test0559_valueless_tag_in_pattern() {
         // Pattern with value-less tag (K=*) requires instance to have the tag
         let pattern = TaggedUrn::from_string("cap:ext;generate;in=media:;out=media:").unwrap();
 
@@ -2401,9 +2401,9 @@ mod tests {
         assert!(instance_missing.conforms_to(&pattern_optional).unwrap());
     }
 
-    // TEST560: Score value-less wildcard tags with graded specificity
+    // TEST0560: Score value-less wildcard tags with graded specificity
     #[test]
-    fn test_valueless_tag_specificity() {
+    fn test0560_valueless_tag_specificity() {
         // Six-form ladder: ?x=0, x?=v=1, x=*=2, x!=v=3, x=v=4, !x=5.
         let urn1 = TaggedUrn::from_string("cap:generate").unwrap();          // 1 marker
         let urn2 = TaggedUrn::from_string("cap:generate;optimize").unwrap(); // 2 markers
@@ -2414,9 +2414,9 @@ mod tests {
         assert_eq!(urn3.specificity(), 6); // 1 marker + 1 exact = 2 + 4 = 6
     }
 
-    // TEST561: Round-trip value-less tags through parse and serialize
+    // TEST0561: Round-trip value-less tags through parse and serialize
     #[test]
-    fn test_valueless_tag_roundtrip() {
+    fn test0561_valueless_tag_roundtrip() {
         // Round-trip parsing and serialization
         let original = "cap:ext=pdf;generate;in=media:;optimize;out=media:;secure";
         let urn = TaggedUrn::from_string(original).unwrap();
@@ -2426,9 +2426,9 @@ mod tests {
         assert_eq!(serialized, original);
     }
 
-    // TEST562: Normalize value-less tag keys to lowercase
+    // TEST0562: Normalize value-less tag keys to lowercase
     #[test]
-    fn test_valueless_tag_case_normalization() {
+    fn test0562_valueless_tag_case_normalization() {
         // Value-less tags are normalized to lowercase like other keys
         let urn = TaggedUrn::from_string("cap:OPTIMIZE;Fast;SECURE").unwrap();
         assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
@@ -2437,17 +2437,17 @@ mod tests {
         assert_eq!(urn.to_string(), "cap:fast;optimize;secure");
     }
 
-    // TEST563: Reject empty value with equals sign as distinct from value-less tag
+    // TEST0563: Reject empty value with equals sign as distinct from value-less tag
     #[test]
-    fn test_empty_value_still_error() {
+    fn test0563_empty_value_still_error() {
         // Empty value with = is still an error (different from value-less)
         assert!(TaggedUrn::from_string("cap:key=").is_err());
         assert!(TaggedUrn::from_string("cap:key=;other=value").is_err());
     }
 
-    // TEST564: Verify directional accepts of value-less wildcard tags with specific values
+    // TEST0564: Verify directional accepts of value-less wildcard tags with specific values
     #[test]
-    fn test_valueless_tag_directional_accepts() {
+    fn test0564_valueless_tag_directional_accepts() {
         // Value-less tags stored as * act as pattern requiring any present value
         let wildcard_ext = TaggedUrn::from_string("cap:ext;generate;in=media:;out=media:").unwrap();
         let ext_pdf = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
@@ -2464,17 +2464,17 @@ mod tests {
         assert!(!ext_docx.accepts(&ext_pdf).unwrap());
     }
 
-    // TEST565: Reject purely numeric keys for value-less tags
+    // TEST0565: Reject purely numeric keys for value-less tags
     #[test]
-    fn test_valueless_numeric_key_still_rejected() {
+    fn test0565_valueless_numeric_key_still_rejected() {
         // Purely numeric keys are still rejected for value-less tags
         assert!(TaggedUrn::from_string("cap:123").is_err());
         assert!(TaggedUrn::from_string("cap:generate;in=media:;out=media:;456").is_err());
     }
 
-    // TEST566: Reject leading, trailing, and embedded whitespace in URN input
+    // TEST0566: Reject leading, trailing, and embedded whitespace in URN input
     #[test]
-    fn test_whitespace_in_input_rejected() {
+    fn test0566_whitespace_in_input_rejected() {
         // Leading whitespace fails hard
         let result = TaggedUrn::from_string(" cap:in=media:;out=media:;test");
         assert!(result.is_err());
@@ -2514,32 +2514,32 @@ mod tests {
     // NEW SEMANTICS TESTS: ? (unspecified) and ! (must-not-have)
     // ============================================================================
 
-    // TEST567: Parse question mark as unspecified value and verify
+    // TEST0567: Parse question mark as unspecified value and verify
     // serialization. All three input aliases (?x, x?, x=?) parse to
     // the same stored value `"?"` and serialize as the canonical
     // prefix form `?x`.
     #[test]
-    fn test_unspecified_question_mark_parsing() {
+    fn test0567_unspecified_question_mark_parsing() {
         let urn = TaggedUrn::from_string("cap:ext=?").unwrap();
         assert_eq!(urn.get_tag("ext"), Some(&"?".to_string()));
         // Canonical form is `?ext` (prefix), not `ext=?`.
         assert_eq!(urn.to_string(), "cap:?ext");
     }
 
-    // TEST568: Parse exclamation mark as must-not-have value and
+    // TEST0568: Parse exclamation mark as must-not-have value and
     // verify serialization. All three input aliases (!x, x!, x=!)
     // parse to stored value `"!"` and serialize as canonical `!x`.
     #[test]
-    fn test_must_not_have_exclamation_parsing() {
+    fn test0568_must_not_have_exclamation_parsing() {
         let urn = TaggedUrn::from_string("cap:ext=!").unwrap();
         assert_eq!(urn.get_tag("ext"), Some(&"!".to_string()));
         // Canonical form is `!ext` (prefix), not `ext=!`.
         assert_eq!(urn.to_string(), "cap:!ext");
     }
 
-    // TEST569: Match any instance against pattern with unspecified (?) tag value
+    // TEST0569: Match any instance against pattern with unspecified (?) tag value
     #[test]
-    fn test_question_mark_pattern_matches_anything() {
+    fn test0569_question_mark_pattern_matches_anything() {
         // Pattern with K=? matches any instance (with or without K)
         let pattern = TaggedUrn::from_string("cap:ext=?").unwrap();
 
@@ -2556,9 +2556,9 @@ mod tests {
         assert!(instance_must_not.conforms_to(&pattern).unwrap(), "ext=! should match ext=?");
     }
 
-    // TEST570: Match instance with unspecified (?) tag against any pattern constraint
+    // TEST0570: Match instance with unspecified (?) tag against any pattern constraint
     #[test]
-    fn test_question_mark_in_instance() {
+    fn test0570_question_mark_in_instance() {
         // Instance with K=? matches any pattern constraint
         let instance = TaggedUrn::from_string("cap:ext=?").unwrap();
 
@@ -2575,9 +2575,9 @@ mod tests {
         assert!(instance.conforms_to(&pattern_missing).unwrap(), "ext=? should match (no ext)");
     }
 
-    // TEST571: Require tag to be absent when pattern uses must-not-have (!) value
+    // TEST0571: Require tag to be absent when pattern uses must-not-have (!) value
     #[test]
-    fn test_must_not_have_pattern_requires_absent() {
+    fn test0571_must_not_have_pattern_requires_absent() {
         // Pattern with K=! requires instance to NOT have K
         let pattern = TaggedUrn::from_string("cap:ext=!").unwrap();
 
@@ -2592,9 +2592,9 @@ mod tests {
         assert!(instance_must_not.conforms_to(&pattern).unwrap(), "ext=! should match ext=!");
     }
 
-    // TEST572: Reject instance with must-not-have (!) tag against patterns requiring that tag
+    // TEST0572: Reject instance with must-not-have (!) tag against patterns requiring that tag
     #[test]
-    fn test_must_not_have_in_instance() {
+    fn test0572_must_not_have_in_instance() {
         // Instance with K=! conflicts with patterns requiring K
         let instance = TaggedUrn::from_string("cap:ext=!").unwrap();
 
@@ -2611,9 +2611,9 @@ mod tests {
         assert!(instance.conforms_to(&pattern_missing).unwrap(), "ext=! should match (no ext)");
     }
 
-    // TEST573: Verify full cross-product truth table for all instance/pattern value combinations
+    // TEST0573: Verify full cross-product truth table for all instance/pattern value combinations
     #[test]
-    fn test_full_cross_product_matching() {
+    fn test0573_full_cross_product_matching() {
         // Comprehensive test of all instance/pattern combinations
         // Based on the truth table in the plan
 
@@ -2668,9 +2668,9 @@ mod tests {
         check("cap:k=v", "cap:k=w", false, "K=v/K=w");
     }
 
-    // TEST574: Match URN with mixed required, optional, forbidden, and exact tags
+    // TEST0574: Match URN with mixed required, optional, forbidden, and exact tags
     #[test]
-    fn test_mixed_special_values() {
+    fn test0574_mixed_special_values() {
         // Test URNs with multiple special values
         let pattern = TaggedUrn::from_string("cap:required;optional=?;forbidden=!;exact=pdf").unwrap();
 
@@ -2691,9 +2691,9 @@ mod tests {
         assert!(!wrong_exact.conforms_to(&pattern).unwrap());
     }
 
-    // TEST575: Round-trip all special values (?, !, *, exact) through parse and serialize
+    // TEST0575: Round-trip all special values (?, !, *, exact) through parse and serialize
     #[test]
-    fn test_serialization_round_trip_special_values() {
+    fn test0575_serialization_round_trip_special_values() {
         // All special values round-trip correctly
         let originals = [
             "cap:ext=?",
@@ -2710,9 +2710,9 @@ mod tests {
         }
     }
 
-    // TEST576: Check bidirectional accepts between !, *, ?, and specific value tags
+    // TEST0576: Check bidirectional accepts between !, *, ?, and specific value tags
     #[test]
-    fn test_bidirectional_accepts_with_special_values() {
+    fn test0576_bidirectional_accepts_with_special_values() {
         // ! does not overlap with * or specific values
         let must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
         let must_have = TaggedUrn::from_string("cap:ext=*").unwrap();
@@ -2860,10 +2860,10 @@ mod tests {
         assert!(unspecified.is_equivalent(&must_not).unwrap());
     }
 
-    // TEST577: Verify graded specificity scores and tuples for special value types
+    // TEST0577: Verify graded specificity scores and tuples for special value types
     // under the six-form ladder.
     #[test]
-    fn test_specificity_with_special_values() {
+    fn test0577_specificity_with_special_values() {
         // Six-form ladder: ?x=0, x?=v=1, x=*=2, x!=v=3, x=v=4, !x=5
         let exact = TaggedUrn::from_string("cap:a=x;b=y;c=z").unwrap();      // 3 * 4 = 12
         let must_have = TaggedUrn::from_string("cap:a;b;c").unwrap();        // 3 * 2 = 6
@@ -3063,8 +3063,9 @@ mod tests {
     }
 }
 
+// TEST0001: Tag order normalization
 #[test]
-fn test_tag_order_normalization() {
+fn test0001_tag_order_normalization() {
     // Two URNs with same tags in different order should produce identical canonical string
     let urn1 = TaggedUrn::from_string("media:list;textable").unwrap();
     let urn2 = TaggedUrn::from_string("media:textable;list").unwrap();
