@@ -972,7 +972,7 @@ impl TaggedUrn {
     /// From order theory: in a partial order, two elements are **comparable**
     /// when one is ≤ the other. Elements that are NOT comparable are in
     /// different branches of the specialization lattice (e.g., `media:pdf`
-    /// vs `media:txt;textable` — neither accepts the other).
+    /// vs `media:enc=utf-8;txt` — neither accepts the other).
     ///
     /// This is the weakest relation: it finds all URNs on the same
     /// generalization/specialization chain. Use it when you want to discover
@@ -2776,7 +2776,7 @@ mod tests {
     #[test]
     fn test581_incomparable_different_branches() {
         let pdf = TaggedUrn::from_string("media:pdf").unwrap();
-        let txt = TaggedUrn::from_string("media:textable;txt").unwrap();
+        let txt = TaggedUrn::from_string("media:enc=utf-8;txt").unwrap();
         // pdf.accepts(txt) = false (pdf missing from txt)
         // txt.accepts(pdf) = false (txt missing from pdf)
         // OR → false
@@ -2830,7 +2830,7 @@ mod tests {
         assert!(urn.is_equivalent_str("media:pdf").unwrap()); // same tags
         assert!(!urn.is_equivalent_str("media:").unwrap()); // different
         assert!(urn.is_comparable_str("media:").unwrap()); // on same chain
-        assert!(!urn.is_comparable_str("media:textable;txt").unwrap()); // different branch
+        assert!(!urn.is_comparable_str("media:enc=utf-8;txt").unwrap()); // different branch
     }
 
     // TEST586: Special values (*, !, ?) with is_equivalent and is_comparable
@@ -3067,8 +3067,8 @@ mod tests {
 #[test]
 fn test0001_tag_order_normalization() {
     // Two URNs with same tags in different order should produce identical canonical string
-    let urn1 = TaggedUrn::from_string("media:list;textable").unwrap();
-    let urn2 = TaggedUrn::from_string("media:textable;list").unwrap();
+    let urn1 = TaggedUrn::from_string("media:list;enc=utf-8").unwrap();
+    let urn2 = TaggedUrn::from_string("media:enc=utf-8;list").unwrap();
     
     eprintln!("urn1: {}", urn1.to_string());
     eprintln!("urn2: {}", urn2.to_string());
