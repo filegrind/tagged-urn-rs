@@ -302,9 +302,7 @@ impl TaggedUrn {
                 ParseState::InKey => {
                     if c == '=' {
                         if current_key.is_empty() {
-                            return Err(TaggedUrnError::EmptyTagComponent(
-                                "empty key".to_string(),
-                            ));
+                            return Err(TaggedUrnError::EmptyTagComponent("empty key".to_string()));
                         }
                         state = ParseState::ExpectingValue;
                     } else if c == '?' {
@@ -333,9 +331,7 @@ impl TaggedUrn {
                     } else if c == ';' {
                         // Value-less tag.
                         if current_key.is_empty() {
-                            return Err(TaggedUrnError::EmptyTagComponent(
-                                "empty key".to_string(),
-                            ));
+                            return Err(TaggedUrnError::EmptyTagComponent("empty key".to_string()));
                         }
                         current_value = Self::canonical_no_value(qualifier);
                         Self::finish_tag(&mut tags, &mut current_key, &mut current_value)?;
@@ -472,9 +468,7 @@ impl TaggedUrn {
                 //   Some('?')  -> "?" (no constraint)
                 //   Some('!')  -> "!" (must-not-have)
                 if current_key.is_empty() {
-                    return Err(TaggedUrnError::EmptyTagComponent(
-                        "empty key".to_string(),
-                    ));
+                    return Err(TaggedUrnError::EmptyTagComponent("empty key".to_string()));
                 }
                 current_value = Self::canonical_no_value(qualifier);
                 Self::finish_tag(&mut tags, &mut current_key, &mut current_value)?;
@@ -617,9 +611,9 @@ impl TaggedUrn {
 
     /// Check if a value needs quoting for serialization
     fn needs_quoting(value: &str) -> bool {
-        value.chars().any(|c| {
-            c == ';' || c == '=' || c == '"' || c == '\\' || c == ' ' || c.is_uppercase()
-        })
+        value
+            .chars()
+            .any(|c| c == ';' || c == '=' || c == '"' || c == '\\' || c == ' ' || c.is_uppercase())
     }
 
     /// Quote a value for serialization
@@ -669,14 +663,13 @@ impl TaggedUrn {
     /// single stored form; serialization emits the canonical
     /// representative deterministically.
     pub fn tags_to_string(&self) -> String {
-        self
-            .tags
+        self.tags
             .iter()
             .map(|(k, v)| {
                 match v.as_str() {
-                    "*" => k.clone(),                       // bare key
-                    "?" => format!("?{}", k),               // prefix `?k`
-                    "!" => format!("!{}", k),               // prefix `!k`
+                    "*" => k.clone(),         // bare key
+                    "?" => format!("?{}", k), // prefix `?k`
+                    "!" => format!("!{}", k), // prefix `!k`
                     qv if qv.starts_with("?=") => {
                         let raw = &qv[2..];
                         if Self::needs_quoting(raw) {
@@ -807,9 +800,8 @@ impl TaggedUrn {
             });
         }
 
-        let all_keys: std::collections::HashSet<&String> = instance_tags.keys()
-            .chain(pattern_tags.keys())
-            .collect();
+        let all_keys: std::collections::HashSet<&String> =
+            instance_tags.keys().chain(pattern_tags.keys()).collect();
 
         for key in all_keys {
             let inst = instance_tags.get(key).map(|s| s.as_str());
@@ -909,7 +901,7 @@ impl TaggedUrn {
             (Form::Missing, Form::MustHaveAny) => false,
             (Form::AbsentOrNotValue(_), Form::MustHaveAny) => false, // may be absent
             (Form::MustNotHave, Form::MustHaveAny) => false,
-            (_, Form::MustHaveAny) => true,                          // *, !=v, exact, ?
+            (_, Form::MustHaveAny) => true, // *, !=v, exact, ?
 
             // Pattern: present-and-not-p.
             (Form::Missing, Form::PresentNotValue(_)) => false,
@@ -1025,12 +1017,8 @@ impl TaggedUrn {
 
         let mut removed = BTreeMap::new();
         let mut added = BTreeMap::new();
-        let all_keys: std::collections::BTreeSet<String> = base
-            .tags
-            .keys()
-            .chain(self.tags.keys())
-            .cloned()
-            .collect();
+        let all_keys: std::collections::BTreeSet<String> =
+            base.tags.keys().chain(self.tags.keys()).cloned().collect();
 
         for key in all_keys {
             let base_value = base.tags.get(&key);
@@ -1098,7 +1086,10 @@ impl TaggedUrn {
     /// → exact `x=v` (4) tightens positively; `?x` (0) → `x?=v` (1)
     /// → `x!=v` (3) → `!x` (5) tightens negatively.
     pub fn specificity(&self) -> usize {
-        self.tags.values().map(|v| score_tag_value(v.as_str())).sum()
+        self.tags
+            .values()
+            .map(|v| score_tag_value(v.as_str()))
+            .sum()
     }
 
     /// Get specificity as a tuple for tie-breaking. Counts how many
@@ -1147,7 +1138,6 @@ impl TaggedUrn {
 
         Ok(self.specificity() > other.specificity())
     }
-
 
     /// Create a wildcard version by replacing specific values with wildcards
     pub fn with_wildcard_tag(self, key: &str) -> Self {
@@ -1334,7 +1324,10 @@ impl UrnMatcher {
     /// Find the most specific URN that conforms to a request's constraints.
     /// URNs are instances (capabilities), request is the pattern (requirement).
     /// All URNs must have the same prefix as the request.
-    pub fn find_best_match<'a>(urns: &'a [TaggedUrn], request: &TaggedUrn) -> Result<Option<&'a TaggedUrn>, TaggedUrnError> {
+    pub fn find_best_match<'a>(
+        urns: &'a [TaggedUrn],
+        request: &TaggedUrn,
+    ) -> Result<Option<&'a TaggedUrn>, TaggedUrnError> {
         let mut best: Option<&TaggedUrn> = None;
         let mut best_specificity = 0;
 
@@ -1354,7 +1347,10 @@ impl UrnMatcher {
     /// Find all URNs that conform to a request's constraints, sorted by specificity.
     /// URNs are instances (capabilities), request is the pattern (requirement).
     /// All URNs must have the same prefix as the request.
-    pub fn find_all_matches<'a>(urns: &'a [TaggedUrn], request: &TaggedUrn) -> Result<Vec<&'a TaggedUrn>, TaggedUrnError> {
+    pub fn find_all_matches<'a>(
+        urns: &'a [TaggedUrn],
+        request: &TaggedUrn,
+    ) -> Result<Vec<&'a TaggedUrn>, TaggedUrnError> {
         let mut results: Vec<&TaggedUrn> = Vec::new();
 
         for urn in urns {
@@ -1370,7 +1366,10 @@ impl UrnMatcher {
 
     /// Check if two URN sets are compatible
     /// All URNs in both sets must have the same prefix
-    pub fn are_compatible(urns1: &[TaggedUrn], urns2: &[TaggedUrn]) -> Result<bool, TaggedUrnError> {
+    pub fn are_compatible(
+        urns1: &[TaggedUrn],
+        urns2: &[TaggedUrn],
+    ) -> Result<bool, TaggedUrnError> {
         for u1 in urns1 {
             for u2 in urns2 {
                 if u1.accepts(u2)? || u2.accepts(u1)? {
@@ -1421,7 +1420,7 @@ impl TaggedUrnBuilder {
         Ok(self)
     }
 
-	/// Add a tag with key (normalized to lowercase) and wildcard value
+    /// Add a tag with key (normalized to lowercase) and wildcard value
     pub fn marker(mut self, key: &str) -> Result<Self, TaggedUrnError> {
         let key_lower = key.to_lowercase();
         if self.tags.contains_key(&key_lower) {
@@ -1464,7 +1463,9 @@ mod tests {
     // TEST0501: Create tagged URN from string and verify prefix and tag values
     #[test]
     fn test0501_tagged_urn_creation() {
-        let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
+        let urn =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;")
+                .unwrap();
         assert_eq!(urn.get_prefix(), "cap");
         assert!(urn.has_marker_tag("generate"));
         assert_eq!(urn.get_tag("target"), Some(&"thumbnail".to_string()));
@@ -1519,7 +1520,8 @@ mod tests {
     #[test]
     fn test0505_builder_with_prefix() {
         let urn = TaggedUrnBuilder::new("custom")
-            .tag("key", "value").expect("builder tag fixture must be valid")
+            .tag("key", "value")
+            .expect("builder tag fixture must be valid")
             .build()
             .expect("builder fixture must serialize");
 
@@ -1531,7 +1533,9 @@ mod tests {
     #[test]
     fn test0506_unquoted_values_lowercased() {
         // Unquoted values are normalized to lowercase
-        let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
+        let urn =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;")
+                .unwrap();
 
         // Keys are always lowercase
         assert!(urn.has_marker_tag("generate"));
@@ -1544,7 +1548,9 @@ mod tests {
         assert_eq!(urn.get_tag("Ext"), Some(&"pdf".to_string()));
 
         // Both URNs parse to same lowercase values (same tags, same values)
-        let urn2 = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
+        let urn2 =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;")
+                .unwrap();
         assert_eq!(urn.to_string(), urn2.to_string());
         assert_eq!(urn, urn2);
     }
@@ -1573,7 +1579,10 @@ mod tests {
     fn test0508_quoted_value_special_chars() {
         // Semicolons in quoted values
         let urn = TaggedUrn::from_string(r#"cap:key="value;with;semicolons""#).unwrap();
-        assert_eq!(urn.get_tag("key"), Some(&"value;with;semicolons".to_string()));
+        assert_eq!(
+            urn.get_tag("key"),
+            Some(&"value;with;semicolons".to_string())
+        );
 
         // Equals in quoted values
         let urn2 = TaggedUrn::from_string(r#"cap:key="value=with=equals""#).unwrap();
@@ -1597,7 +1606,10 @@ mod tests {
 
         // Mixed escapes
         let urn3 = TaggedUrn::from_string(r#"cap:key="say \"hello\\world\"""#).unwrap();
-        assert_eq!(urn3.get_tag("key"), Some(&r#"say "hello\world""#.to_string()));
+        assert_eq!(
+            urn3.get_tag("key"),
+            Some(&r#"say "hello\world""#.to_string())
+        );
     }
 
     // TEST0510: Parse URN with both quoted and unquoted tag values
@@ -1640,42 +1652,48 @@ mod tests {
     fn test0513_serialization_smart_quoting() {
         // Simple lowercase value - no quoting needed
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("key", "simple").expect("simple key fixture must be valid")
+            .tag("key", "simple")
+            .expect("simple key fixture must be valid")
             .build()
             .expect("simple key fixture must serialize");
         assert_eq!(urn.to_string(), "cap:key=simple");
 
         // Value with spaces - needs quoting
         let urn2 = TaggedUrnBuilder::new("cap")
-            .tag("key", "has spaces").expect("spaced value fixture must be valid")
+            .tag("key", "has spaces")
+            .expect("spaced value fixture must be valid")
             .build()
             .expect("spaced value fixture must serialize");
         assert_eq!(urn2.to_string(), r#"cap:key="has spaces""#);
 
         // Value with semicolons - needs quoting
         let urn3 = TaggedUrnBuilder::new("cap")
-            .tag("key", "has;semi").expect("semicolon value fixture must be valid")
+            .tag("key", "has;semi")
+            .expect("semicolon value fixture must be valid")
             .build()
             .expect("semicolon value fixture must serialize");
         assert_eq!(urn3.to_string(), r#"cap:key="has;semi""#);
 
         // Value with uppercase - needs quoting to preserve
         let urn4 = TaggedUrnBuilder::new("cap")
-            .tag("key", "HasUpper").expect("mixed-case value fixture must be valid")
+            .tag("key", "HasUpper")
+            .expect("mixed-case value fixture must be valid")
             .build()
             .expect("mixed-case value fixture must serialize");
         assert_eq!(urn4.to_string(), r#"cap:key="HasUpper""#);
 
         // Value with quotes - needs quoting and escaping
         let urn5 = TaggedUrnBuilder::new("cap")
-            .tag("key", r#"has"quote"#).expect("quoted value fixture must be valid")
+            .tag("key", r#"has"quote"#)
+            .expect("quoted value fixture must be valid")
             .build()
             .expect("quoted value fixture must serialize");
         assert_eq!(urn5.to_string(), r#"cap:key="has\"quote""#);
 
         // Value with backslashes - needs quoting and escaping
         let urn6 = TaggedUrnBuilder::new("cap")
-            .tag("key", r#"path\file"#).expect("backslash value fixture must be valid")
+            .tag("key", r#"path\file"#)
+            .expect("backslash value fixture must be valid")
             .build()
             .expect("backslash value fixture must serialize");
         assert_eq!(urn6.to_string(), r#"cap:key="path\\file""#);
@@ -1699,7 +1717,10 @@ mod tests {
         let serialized = urn.to_string();
         let reparsed = TaggedUrn::from_string(&serialized).unwrap();
         assert_eq!(urn, reparsed);
-        assert_eq!(reparsed.get_tag("key"), Some(&"Value With Spaces".to_string()));
+        assert_eq!(
+            reparsed.get_tag("key"),
+            Some(&"Value With Spaces".to_string())
+        );
     }
 
     // TEST0516: Round-trip parse and serialize a URN with escape sequences
@@ -1707,7 +1728,10 @@ mod tests {
     fn test0516_round_trip_escapes() {
         let original = r#"cap:key="value\"with\\escapes""#;
         let urn = TaggedUrn::from_string(original).unwrap();
-        assert_eq!(urn.get_tag("key"), Some(&r#"value"with\escapes"#.to_string()));
+        assert_eq!(
+            urn.get_tag("key"),
+            Some(&r#"value"with\escapes"#.to_string())
+        );
         let serialized = urn.to_string();
         let reparsed = TaggedUrn::from_string(&serialized).unwrap();
         assert_eq!(urn, reparsed);
@@ -1763,7 +1787,9 @@ mod tests {
     // TEST0519: Serialize tags in alphabetical order as canonical string format
     #[test]
     fn test0519_canonical_string_format() {
-        let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail").unwrap();
+        let urn =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail")
+                .unwrap();
         // Should be sorted alphabetically and have no trailing semicolon in canonical form
         // Alphabetical order: ext < op < target
         assert_eq!(
@@ -1775,11 +1801,14 @@ mod tests {
     // TEST0520: Match tags with exact values, subsets, wildcards, and mismatches
     #[test]
     fn test0520_tag_matching() {
-        let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
+        let urn =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;")
+                .unwrap();
 
         // Exact match
         let request1 =
-            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;").unwrap();
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;target=thumbnail;")
+                .unwrap();
         assert!(urn.conforms_to(&request1).unwrap());
 
         // Subset match
@@ -1848,13 +1877,13 @@ mod tests {
         //   x=v       : 4  (must-have-this-value)
         //   !x        : 5  (must-not-have)
 
-        let urn1 = TaggedUrn::from_string("cap:general").unwrap();      // bare marker -> 2
-        let urn2 = TaggedUrn::from_string("cap:ext=pdf").unwrap();      // exact -> 4
-        let urn3 = TaggedUrn::from_string("cap:gen;ext=pdf").unwrap();  // marker + exact = 2+4
-        let urn4 = TaggedUrn::from_string("cap:?ext").unwrap();         // ?x -> 0
-        let urn5 = TaggedUrn::from_string("cap:!ext").unwrap();         // !x -> 5
-        let urn6 = TaggedUrn::from_string("cap:ext?=pdf").unwrap();     // x?=v -> 1
-        let urn7 = TaggedUrn::from_string("cap:ext!=pdf").unwrap();     // x!=v -> 3
+        let urn1 = TaggedUrn::from_string("cap:general").unwrap(); // bare marker -> 2
+        let urn2 = TaggedUrn::from_string("cap:ext=pdf").unwrap(); // exact -> 4
+        let urn3 = TaggedUrn::from_string("cap:gen;ext=pdf").unwrap(); // marker + exact = 2+4
+        let urn4 = TaggedUrn::from_string("cap:?ext").unwrap(); // ?x -> 0
+        let urn5 = TaggedUrn::from_string("cap:!ext").unwrap(); // !x -> 5
+        let urn6 = TaggedUrn::from_string("cap:ext?=pdf").unwrap(); // x?=v -> 1
+        let urn7 = TaggedUrn::from_string("cap:ext!=pdf").unwrap(); // x!=v -> 3
 
         assert_eq!(urn1.specificity(), 2);
         assert_eq!(urn2.specificity(), 4);
@@ -1878,10 +1907,14 @@ mod tests {
     #[test]
     fn test0524_builder() {
         let urn = TaggedUrnBuilder::new("cap")
-            .marker("generate").expect("generate marker fixture must be valid")
-            .tag("target", "thumbnail").expect("target fixture must be valid")
-            .tag("ext", "pdf").expect("ext fixture must be valid")
-            .tag("output", "binary").expect("output fixture must be valid")
+            .marker("generate")
+            .expect("generate marker fixture must be valid")
+            .tag("target", "thumbnail")
+            .expect("target fixture must be valid")
+            .tag("ext", "pdf")
+            .expect("ext fixture must be valid")
+            .tag("output", "binary")
+            .expect("output fixture must be valid")
             .build()
             .expect("builder fixture must serialize");
 
@@ -1893,7 +1926,8 @@ mod tests {
     #[test]
     fn test0525_builder_preserves_case() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("KEY", "ValueWithCase").expect("case-preserving fixture must be valid")
+            .tag("KEY", "ValueWithCase")
+            .expect("case-preserving fixture must be valid")
             .build()
             .expect("case-preserving fixture must serialize");
 
@@ -1926,7 +1960,8 @@ mod tests {
         assert!(!specific.accepts(&wildcard).unwrap());
 
         // But a fully-specified instance satisfies both
-        let full_instance = TaggedUrn::from_string("cap:ext=pdf;format=png;generate;in=media:;out=media:").unwrap();
+        let full_instance =
+            TaggedUrn::from_string("cap:ext=pdf;format=png;generate;in=media:;out=media:").unwrap();
         assert!(specific.accepts(&full_instance).unwrap());
         assert!(wildcard.accepts(&full_instance).unwrap());
     }
@@ -1941,11 +1976,16 @@ mod tests {
         ];
 
         let request = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap();
-        let best = UrnMatcher::find_best_match(&urns, &request).unwrap().unwrap();
+        let best = UrnMatcher::find_best_match(&urns, &request)
+            .unwrap()
+            .unwrap();
 
         // Most specific URN that can handle the request
         // Alphabetical order: ext < op
-        assert_eq!(best.to_string(), "cap:ext=pdf;generate;in=media:;out=media:");
+        assert_eq!(
+            best.to_string(),
+            "cap:ext=pdf;generate;in=media:;out=media:"
+        );
     }
 
     // TEST0528: Merge two URNs and extract a subset of tags
@@ -1973,7 +2013,10 @@ mod tests {
 
         let result = urn1.merge(&urn2);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TaggedUrnError::PrefixMismatch { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            TaggedUrnError::PrefixMismatch { .. }
+        ));
     }
 
     // TEST0530: Convert specific tag value to wildcard and verify matching behavior
@@ -1988,7 +2031,9 @@ mod tests {
         // Test that wildcarded URN can match more requests
         let request = TaggedUrn::from_string("cap:ext=jpg").unwrap();
         assert!(!urn.conforms_to(&request).unwrap());
-        assert!(wildcarded.conforms_to(&TaggedUrn::from_string("cap:ext").unwrap()).unwrap());
+        assert!(wildcarded
+            .conforms_to(&TaggedUrn::from_string("cap:ext").unwrap())
+            .unwrap());
     }
 
     // TEST0531: Handle empty tagged URN with no tags in matching and serialization
@@ -2003,7 +2048,8 @@ mod tests {
         // Empty PATTERN matches any INSTANCE (pattern has no constraints)
         // Empty INSTANCE only matches patterns that have no required tags
 
-        let specific_urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
+        let specific_urn =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
 
         // Empty instance vs specific pattern: NO MATCH
         // Pattern requires generate and ext=pdf, instance doesn't have them
@@ -2034,7 +2080,8 @@ mod tests {
     #[test]
     fn test0533_extended_character_support() {
         // Test forward slashes and colons in tag components
-        let urn = TaggedUrn::from_string("cap:url=https://example_org/api;path=/some/file").unwrap();
+        let urn =
+            TaggedUrn::from_string("cap:url=https://example_org/api;path=/some/file").unwrap();
         assert_eq!(
             urn.get_tag("url"),
             Some(&"https://example_org/api".to_string())
@@ -2104,14 +2151,17 @@ mod tests {
     // TEST0539: Preserve value case when adding tag with with_tag method
     #[test]
     fn test0539_with_tag_preserves_value() {
-        let urn = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "ValueWithCase".to_string()).unwrap();
+        let urn = TaggedUrn::empty("cap".to_string())
+            .with_tag("key".to_string(), "ValueWithCase".to_string())
+            .unwrap();
         assert_eq!(urn.get_tag("key"), Some(&"ValueWithCase".to_string()));
     }
 
     // TEST0540: Reject empty value string in with_tag method
     #[test]
     fn test0540_with_tag_rejects_empty_value() {
-        let result = TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "".to_string());
+        let result =
+            TaggedUrn::empty("cap".to_string()).with_tag("key".to_string(), "".to_string());
         assert!(result.is_err());
         if let Err(TaggedUrnError::EmptyTagComponent(msg)) = result {
             assert!(msg.contains("empty value"));
@@ -2160,7 +2210,10 @@ mod tests {
         // Result:  MATCH
         let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
         let request = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
-        assert!(urn.conforms_to(&request).unwrap(), "Test 1: Exact match should succeed");
+        assert!(
+            urn.conforms_to(&request).unwrap(),
+            "Test 1: Exact match should succeed"
+        );
     }
 
     // TEST0544: Reject match when instance is missing a tag required by pattern
@@ -2175,11 +2228,18 @@ mod tests {
         // Pattern K=v requires instance to have K=v.
         let instance = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap();
         let pattern = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
-        assert!(!instance.conforms_to(&pattern).unwrap(), "Test 2: Instance missing tag should NOT match when pattern requires it");
+        assert!(
+            !instance.conforms_to(&pattern).unwrap(),
+            "Test 2: Instance missing tag should NOT match when pattern requires it"
+        );
 
         // To accept any ext (or missing), use pattern with ext=?
-        let pattern_optional = TaggedUrn::from_string("cap:ext=?;generate;in=media:;out=media:").unwrap();
-        assert!(instance.conforms_to(&pattern_optional).unwrap(), "Pattern with ext=? should match instance without ext");
+        let pattern_optional =
+            TaggedUrn::from_string("cap:ext=?;generate;in=media:;out=media:").unwrap();
+        assert!(
+            instance.conforms_to(&pattern_optional).unwrap(),
+            "Pattern with ext=? should match instance without ext"
+        );
     }
 
     // TEST0545: Match when instance has extra tags not constrained by pattern
@@ -2189,9 +2249,13 @@ mod tests {
         // URN:     cap:ext=pdf;generate;in=media:;out=media:;version=2
         // Request: cap:ext=pdf;generate;in=media:;out=media:
         // Result:  MATCH (request doesn't constrain version)
-        let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;version=2").unwrap();
+        let urn =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:;version=2").unwrap();
         let request = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
-        assert!(urn.conforms_to(&request).unwrap(), "Test 3: URN with extra tag should match");
+        assert!(
+            urn.conforms_to(&request).unwrap(),
+            "Test 3: URN with extra tag should match"
+        );
     }
 
     // TEST0546: Match when pattern has wildcard accepting any value for a tag
@@ -2203,7 +2267,10 @@ mod tests {
         // Result:  MATCH (request accepts any ext)
         let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
         let request = TaggedUrn::from_string("cap:ext;generate;in=media:;out=media:").unwrap();
-        assert!(urn.conforms_to(&request).unwrap(), "Test 4: Request wildcard should match");
+        assert!(
+            urn.conforms_to(&request).unwrap(),
+            "Test 4: Request wildcard should match"
+        );
     }
 
     // TEST0547: Match when instance has wildcard satisfying pattern's specific value
@@ -2215,7 +2282,10 @@ mod tests {
         // Result:  MATCH (URN handles any ext)
         let urn = TaggedUrn::from_string("cap:ext;generate;in=media:;out=media:").unwrap();
         let request = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
-        assert!(urn.conforms_to(&request).unwrap(), "Test 5: URN wildcard should match");
+        assert!(
+            urn.conforms_to(&request).unwrap(),
+            "Test 5: URN wildcard should match"
+        );
     }
 
     // TEST0548: Reject match when tag values conflict between instance and pattern
@@ -2227,7 +2297,10 @@ mod tests {
         // Result:  NO MATCH
         let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
         let request = TaggedUrn::from_string("cap:ext=docx;generate;in=media:;out=media:").unwrap();
-        assert!(!urn.conforms_to(&request).unwrap(), "Test 6: Value mismatch should not match");
+        assert!(
+            !urn.conforms_to(&request).unwrap(),
+            "Test 6: Value mismatch should not match"
+        );
     }
 
     // TEST0549: Reject match when pattern requires a tag absent from instance
@@ -2239,12 +2312,19 @@ mod tests {
         // Result:   NO MATCH (pattern requires ext=wav, instance doesn't have ext)
         //
         // NEW SEMANTICS: Pattern K=v requires instance to have K=v
-        let instance = TaggedUrn::from_string(r#"cap:generate_thumbnail;in=media:;out=media:binary"#).unwrap();
-        let pattern = TaggedUrn::from_string(r#"cap:ext=wav;generate_thumbnail;in=media:;out=media:binary"#).unwrap();
-        assert!(!instance.conforms_to(&pattern).unwrap(), "Test 7: Instance missing ext should NOT match when pattern requires ext=wav");
+        let instance =
+            TaggedUrn::from_string(r#"cap:generate_thumbnail;in=media:;out=media:binary"#).unwrap();
+        let pattern =
+            TaggedUrn::from_string(r#"cap:ext=wav;generate_thumbnail;in=media:;out=media:binary"#)
+                .unwrap();
+        assert!(
+            !instance.conforms_to(&pattern).unwrap(),
+            "Test 7: Instance missing ext should NOT match when pattern requires ext=wav"
+        );
 
         // Instance vs pattern that doesn't constrain ext: MATCH
-        let pattern_no_ext = TaggedUrn::from_string(r#"cap:generate_thumbnail;in=media:;out=media:binary"#).unwrap();
+        let pattern_no_ext =
+            TaggedUrn::from_string(r#"cap:generate_thumbnail;in=media:;out=media:binary"#).unwrap();
         assert!(instance.conforms_to(&pattern_no_ext).unwrap());
     }
 
@@ -2260,12 +2340,18 @@ mod tests {
         // But empty instance only matches patterns that don't require tags
         let instance = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
         let empty_pattern = TaggedUrn::from_string("cap:").unwrap();
-        assert!(instance.conforms_to(&empty_pattern).unwrap(), "Test 8: Any instance should match empty pattern");
+        assert!(
+            instance.conforms_to(&empty_pattern).unwrap(),
+            "Test 8: Any instance should match empty pattern"
+        );
 
         // Empty instance vs pattern with requirements: NO MATCH
         let empty_instance = TaggedUrn::from_string("cap:").unwrap();
         let pattern = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
-        assert!(!empty_instance.conforms_to(&pattern).unwrap(), "Empty instance should NOT match pattern with requirements");
+        assert!(
+            !empty_instance.conforms_to(&pattern).unwrap(),
+            "Empty instance should NOT match pattern with requirements"
+        );
     }
 
     // TEST0551: Reject match when instance and pattern have non-overlapping tag dimensions
@@ -2279,12 +2365,19 @@ mod tests {
         // NEW SEMANTICS: Pattern K=v requires instance to have K=v
         let instance = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap();
         let pattern = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(!instance.conforms_to(&pattern).unwrap(), "Test 9: Instance without ext should NOT match pattern requiring ext");
+        assert!(
+            !instance.conforms_to(&pattern).unwrap(),
+            "Test 9: Instance without ext should NOT match pattern requiring ext"
+        );
 
         // Instance with ext vs pattern with different tag only: MATCH
-        let instance2 = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
+        let instance2 =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
         let pattern2 = TaggedUrn::from_string("cap:ext=pdf").unwrap();
-        assert!(instance2.conforms_to(&pattern2).unwrap(), "Instance with ext=pdf should match pattern requiring ext=pdf");
+        assert!(
+            instance2.conforms_to(&pattern2).unwrap(),
+            "Instance with ext=pdf should match pattern requiring ext=pdf"
+        );
     }
 
     // TEST0552: Return error for conforms_to, accepts, and is_more_specific_than with different prefixes
@@ -2335,13 +2428,18 @@ mod tests {
     #[test]
     fn test0555_valueless_tag_mixed_with_valued() {
         // Mix of value-less and valued tags
-        let urn = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;optimize;out=media:;secure").unwrap();
+        let urn =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;optimize;out=media:;secure")
+                .unwrap();
         assert!(urn.has_marker_tag("generate"));
         assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
         assert_eq!(urn.get_tag("ext"), Some(&"pdf".to_string()));
         assert_eq!(urn.get_tag("secure"), Some(&"*".to_string()));
         // Serializes alphabetically
-        assert_eq!(urn.to_string(), "cap:ext=pdf;generate;in=media:;optimize;out=media:;secure");
+        assert_eq!(
+            urn.to_string(),
+            "cap:ext=pdf;generate;in=media:;optimize;out=media:;secure"
+        );
     }
 
     // TEST0556: Parse value-less tag at end of URN without trailing semicolon
@@ -2351,7 +2449,10 @@ mod tests {
         let urn = TaggedUrn::from_string("cap:generate;in=media:;optimize;out=media:").unwrap();
         assert!(urn.has_marker_tag("generate"));
         assert_eq!(urn.get_tag("optimize"), Some(&"*".to_string()));
-        assert_eq!(urn.to_string(), "cap:generate;in=media:;optimize;out=media:");
+        assert_eq!(
+            urn.to_string(),
+            "cap:generate;in=media:;optimize;out=media:"
+        );
     }
 
     // TEST0557: Verify value-less tag is equivalent to explicit wildcard (key=*)
@@ -2372,9 +2473,12 @@ mod tests {
         // Value-less tag (wildcard) matches any value
         let urn = TaggedUrn::from_string("cap:ext;generate;in=media:;out=media:").unwrap();
 
-        let request_pdf = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
-        let request_docx = TaggedUrn::from_string("cap:ext=docx;generate;in=media:;out=media:").unwrap();
-        let request_any = TaggedUrn::from_string("cap:ext=anything;generate;in=media:;out=media:").unwrap();
+        let request_pdf =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
+        let request_docx =
+            TaggedUrn::from_string("cap:ext=docx;generate;in=media:;out=media:").unwrap();
+        let request_any =
+            TaggedUrn::from_string("cap:ext=anything;generate;in=media:;out=media:").unwrap();
 
         assert!(urn.conforms_to(&request_pdf).unwrap());
         assert!(urn.conforms_to(&request_docx).unwrap());
@@ -2387,8 +2491,10 @@ mod tests {
         // Pattern with value-less tag (K=*) requires instance to have the tag
         let pattern = TaggedUrn::from_string("cap:ext;generate;in=media:;out=media:").unwrap();
 
-        let instance_pdf = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
-        let instance_docx = TaggedUrn::from_string("cap:ext=docx;generate;in=media:;out=media:").unwrap();
+        let instance_pdf =
+            TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
+        let instance_docx =
+            TaggedUrn::from_string("cap:ext=docx;generate;in=media:;out=media:").unwrap();
         let instance_missing = TaggedUrn::from_string("cap:generate;in=media:;out=media:").unwrap();
 
         // NEW SEMANTICS: K=* (valueless tag) means must-have-any
@@ -2397,7 +2503,8 @@ mod tests {
         assert!(!instance_missing.conforms_to(&pattern).unwrap()); // Missing ext, pattern requires it
 
         // To accept missing ext, use ? instead
-        let pattern_optional = TaggedUrn::from_string("cap:ext=?;generate;in=media:;out=media:").unwrap();
+        let pattern_optional =
+            TaggedUrn::from_string("cap:ext=?;generate;in=media:;out=media:").unwrap();
         assert!(instance_missing.conforms_to(&pattern_optional).unwrap());
     }
 
@@ -2405,9 +2512,9 @@ mod tests {
     #[test]
     fn test0560_valueless_tag_specificity() {
         // Six-form ladder: ?x=0, x?=v=1, x=*=2, x!=v=3, x=v=4, !x=5.
-        let urn1 = TaggedUrn::from_string("cap:generate").unwrap();          // 1 marker
+        let urn1 = TaggedUrn::from_string("cap:generate").unwrap(); // 1 marker
         let urn2 = TaggedUrn::from_string("cap:generate;optimize").unwrap(); // 2 markers
-        let urn3 = TaggedUrn::from_string("cap:ext=pdf;generate").unwrap();  // 1 marker + 1 exact
+        let urn3 = TaggedUrn::from_string("cap:ext=pdf;generate").unwrap(); // 1 marker + 1 exact
 
         assert_eq!(urn1.specificity(), 2); // 1 marker = 2
         assert_eq!(urn2.specificity(), 4); // 2 markers = 2 + 2 = 4
@@ -2451,7 +2558,8 @@ mod tests {
         // Value-less tags stored as * act as pattern requiring any present value
         let wildcard_ext = TaggedUrn::from_string("cap:ext;generate;in=media:;out=media:").unwrap();
         let ext_pdf = TaggedUrn::from_string("cap:ext=pdf;generate;in=media:;out=media:").unwrap();
-        let ext_docx = TaggedUrn::from_string("cap:ext=docx;generate;in=media:;out=media:").unwrap();
+        let ext_docx =
+            TaggedUrn::from_string("cap:ext=docx;generate;in=media:;out=media:").unwrap();
 
         // wildcard ext=* accepts specific ext=pdf (pattern * accepts any value)
         assert!(wildcard_ext.accepts(&ext_pdf).unwrap());
@@ -2549,11 +2657,26 @@ mod tests {
         let instance_wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
         let instance_must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
 
-        assert!(instance_pdf.conforms_to(&pattern).unwrap(), "ext=pdf should match ext=?");
-        assert!(instance_docx.conforms_to(&pattern).unwrap(), "ext=docx should match ext=?");
-        assert!(instance_missing.conforms_to(&pattern).unwrap(), "(no ext) should match ext=?");
-        assert!(instance_wildcard.conforms_to(&pattern).unwrap(), "ext=* should match ext=?");
-        assert!(instance_must_not.conforms_to(&pattern).unwrap(), "ext=! should match ext=?");
+        assert!(
+            instance_pdf.conforms_to(&pattern).unwrap(),
+            "ext=pdf should match ext=?"
+        );
+        assert!(
+            instance_docx.conforms_to(&pattern).unwrap(),
+            "ext=docx should match ext=?"
+        );
+        assert!(
+            instance_missing.conforms_to(&pattern).unwrap(),
+            "(no ext) should match ext=?"
+        );
+        assert!(
+            instance_wildcard.conforms_to(&pattern).unwrap(),
+            "ext=* should match ext=?"
+        );
+        assert!(
+            instance_must_not.conforms_to(&pattern).unwrap(),
+            "ext=! should match ext=?"
+        );
     }
 
     // TEST0570: Match instance with unspecified (?) tag against any pattern constraint
@@ -2568,11 +2691,26 @@ mod tests {
         let pattern_question = TaggedUrn::from_string("cap:ext=?").unwrap();
         let pattern_missing = TaggedUrn::from_string("cap:").unwrap();
 
-        assert!(instance.conforms_to(&pattern_pdf).unwrap(), "ext=? should match ext=pdf");
-        assert!(instance.conforms_to(&pattern_wildcard).unwrap(), "ext=? should match ext=*");
-        assert!(instance.conforms_to(&pattern_must_not).unwrap(), "ext=? should match ext=!");
-        assert!(instance.conforms_to(&pattern_question).unwrap(), "ext=? should match ext=?");
-        assert!(instance.conforms_to(&pattern_missing).unwrap(), "ext=? should match (no ext)");
+        assert!(
+            instance.conforms_to(&pattern_pdf).unwrap(),
+            "ext=? should match ext=pdf"
+        );
+        assert!(
+            instance.conforms_to(&pattern_wildcard).unwrap(),
+            "ext=? should match ext=*"
+        );
+        assert!(
+            instance.conforms_to(&pattern_must_not).unwrap(),
+            "ext=? should match ext=!"
+        );
+        assert!(
+            instance.conforms_to(&pattern_question).unwrap(),
+            "ext=? should match ext=?"
+        );
+        assert!(
+            instance.conforms_to(&pattern_missing).unwrap(),
+            "ext=? should match (no ext)"
+        );
     }
 
     // TEST0571: Require tag to be absent when pattern uses must-not-have (!) value
@@ -2586,10 +2724,22 @@ mod tests {
         let instance_wildcard = TaggedUrn::from_string("cap:ext=*").unwrap();
         let instance_must_not = TaggedUrn::from_string("cap:ext=!").unwrap();
 
-        assert!(instance_missing.conforms_to(&pattern).unwrap(), "(no ext) should match ext=!");
-        assert!(!instance_pdf.conforms_to(&pattern).unwrap(), "ext=pdf should NOT match ext=!");
-        assert!(!instance_wildcard.conforms_to(&pattern).unwrap(), "ext=* should NOT match ext=!");
-        assert!(instance_must_not.conforms_to(&pattern).unwrap(), "ext=! should match ext=!");
+        assert!(
+            instance_missing.conforms_to(&pattern).unwrap(),
+            "(no ext) should match ext=!"
+        );
+        assert!(
+            !instance_pdf.conforms_to(&pattern).unwrap(),
+            "ext=pdf should NOT match ext=!"
+        );
+        assert!(
+            !instance_wildcard.conforms_to(&pattern).unwrap(),
+            "ext=* should NOT match ext=!"
+        );
+        assert!(
+            instance_must_not.conforms_to(&pattern).unwrap(),
+            "ext=! should match ext=!"
+        );
     }
 
     // TEST0572: Reject instance with must-not-have (!) tag against patterns requiring that tag
@@ -2604,11 +2754,26 @@ mod tests {
         let pattern_question = TaggedUrn::from_string("cap:ext=?").unwrap();
         let pattern_missing = TaggedUrn::from_string("cap:").unwrap();
 
-        assert!(!instance.conforms_to(&pattern_pdf).unwrap(), "ext=! should NOT match ext=pdf");
-        assert!(!instance.conforms_to(&pattern_wildcard).unwrap(), "ext=! should NOT match ext=*");
-        assert!(instance.conforms_to(&pattern_must_not).unwrap(), "ext=! should match ext=!");
-        assert!(instance.conforms_to(&pattern_question).unwrap(), "ext=! should match ext=?");
-        assert!(instance.conforms_to(&pattern_missing).unwrap(), "ext=! should match (no ext)");
+        assert!(
+            !instance.conforms_to(&pattern_pdf).unwrap(),
+            "ext=! should NOT match ext=pdf"
+        );
+        assert!(
+            !instance.conforms_to(&pattern_wildcard).unwrap(),
+            "ext=! should NOT match ext=*"
+        );
+        assert!(
+            instance.conforms_to(&pattern_must_not).unwrap(),
+            "ext=! should match ext=!"
+        );
+        assert!(
+            instance.conforms_to(&pattern_question).unwrap(),
+            "ext=! should match ext=?"
+        );
+        assert!(
+            instance.conforms_to(&pattern_missing).unwrap(),
+            "ext=! should match (no ext)"
+        );
     }
 
     // TEST0573: Verify full cross-product truth table for all instance/pattern value combinations
@@ -2635,7 +2800,7 @@ mod tests {
         check("cap:", "cap:", true, "(none)/(none)");
         check("cap:", "cap:k=?", true, "(none)/K=?");
         check("cap:", "cap:k=!", true, "(none)/K=!");
-        check("cap:", "cap:k", false, "(none)/K=*");  // K is valueless = *
+        check("cap:", "cap:k", false, "(none)/K=*"); // K is valueless = *
         check("cap:", "cap:k=v", false, "(none)/K=v");
 
         // Instance K=?, Pattern variations
@@ -2672,10 +2837,12 @@ mod tests {
     #[test]
     fn test0574_mixed_special_values() {
         // Test URNs with multiple special values
-        let pattern = TaggedUrn::from_string("cap:required;optional=?;forbidden=!;exact=pdf").unwrap();
+        let pattern =
+            TaggedUrn::from_string("cap:required;optional=?;forbidden=!;exact=pdf").unwrap();
 
         // Instance that satisfies all constraints
-        let good_instance = TaggedUrn::from_string("cap:required=yes;optional=maybe;exact=pdf").unwrap();
+        let good_instance =
+            TaggedUrn::from_string("cap:required=yes;optional=maybe;exact=pdf").unwrap();
         assert!(good_instance.conforms_to(&pattern).unwrap());
 
         // Instance missing required tag
@@ -2683,7 +2850,8 @@ mod tests {
         assert!(!missing_required.conforms_to(&pattern).unwrap());
 
         // Instance has forbidden tag
-        let has_forbidden = TaggedUrn::from_string("cap:required=yes;forbidden=oops;exact=pdf").unwrap();
+        let has_forbidden =
+            TaggedUrn::from_string("cap:required=yes;forbidden=oops;exact=pdf").unwrap();
         assert!(!has_forbidden.conforms_to(&pattern).unwrap());
 
         // Instance with wrong exact value
@@ -2698,7 +2866,7 @@ mod tests {
         let originals = [
             "cap:ext=?",
             "cap:ext=!",
-            "cap:ext",  // * serializes as valueless
+            "cap:ext", // * serializes as valueless
             "cap:a=?;b=!;c;d=exact",
         ];
 
@@ -2732,9 +2900,14 @@ mod tests {
 
         // ? overlaps with everything
         assert!(unspecified.accepts(&must_not).unwrap() || must_not.accepts(&unspecified).unwrap());
-        assert!(unspecified.accepts(&must_have).unwrap() || must_have.accepts(&unspecified).unwrap());
+        assert!(
+            unspecified.accepts(&must_have).unwrap() || must_have.accepts(&unspecified).unwrap()
+        );
         assert!(unspecified.accepts(&specific).unwrap() || specific.accepts(&unspecified).unwrap());
-        assert!(unspecified.accepts(&unspecified).unwrap() || unspecified.accepts(&unspecified).unwrap());
+        assert!(
+            unspecified.accepts(&unspecified).unwrap()
+                || unspecified.accepts(&unspecified).unwrap()
+        );
         assert!(unspecified.accepts(&missing).unwrap() || missing.accepts(&unspecified).unwrap());
     }
 
@@ -2865,11 +3038,11 @@ mod tests {
     #[test]
     fn test0577_specificity_with_special_values() {
         // Six-form ladder: ?x=0, x?=v=1, x=*=2, x!=v=3, x=v=4, !x=5
-        let exact = TaggedUrn::from_string("cap:a=x;b=y;c=z").unwrap();      // 3 * 4 = 12
-        let must_have = TaggedUrn::from_string("cap:a;b;c").unwrap();        // 3 * 2 = 6
-        let must_not = TaggedUrn::from_string("cap:!a;!b;!c").unwrap();      // 3 * 5 = 15
-        let unspecified = TaggedUrn::from_string("cap:?a;?b;?c").unwrap();   // 3 * 0 = 0
-        // mixed: a=x (4) + b (2) + !c (5) + ?d (0) = 11
+        let exact = TaggedUrn::from_string("cap:a=x;b=y;c=z").unwrap(); // 3 * 4 = 12
+        let must_have = TaggedUrn::from_string("cap:a;b;c").unwrap(); // 3 * 2 = 6
+        let must_not = TaggedUrn::from_string("cap:!a;!b;!c").unwrap(); // 3 * 5 = 15
+        let unspecified = TaggedUrn::from_string("cap:?a;?b;?c").unwrap(); // 3 * 0 = 0
+                                                                           // mixed: a=x (4) + b (2) + !c (5) + ?d (0) = 11
         let mixed = TaggedUrn::from_string("cap:!c;?d;a=x;b").unwrap();
 
         assert_eq!(exact.specificity(), 12);
@@ -2895,10 +3068,14 @@ mod tests {
     #[test]
     fn test587_builder_fluent_api() {
         let urn = TaggedUrnBuilder::new("cap")
-            .marker("generate").expect("generate marker fixture must be valid")
-            .tag("target", "thumbnail").expect("target fixture must be valid")
-            .tag("format", "pdf").expect("format fixture must be valid")
-            .tag("output", "binary").expect("output fixture must be valid")
+            .marker("generate")
+            .expect("generate marker fixture must be valid")
+            .tag("target", "thumbnail")
+            .expect("target fixture must be valid")
+            .tag("format", "pdf")
+            .expect("format fixture must be valid")
+            .tag("output", "binary")
+            .expect("output fixture must be valid")
             .build()
             .expect("builder fixture must serialize");
 
@@ -2912,9 +3089,12 @@ mod tests {
     #[test]
     fn test588_builder_custom_tags() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("engine", "v2").expect("engine fixture must be valid")
-            .tag("quality", "high").expect("quality fixture must be valid")
-            .marker("compress").expect("compress marker fixture must be valid")
+            .tag("engine", "v2")
+            .expect("engine fixture must be valid")
+            .tag("quality", "high")
+            .expect("quality fixture must be valid")
+            .marker("compress")
+            .expect("compress marker fixture must be valid")
             .build()
             .expect("builder fixture must serialize");
 
@@ -2927,8 +3107,10 @@ mod tests {
     #[test]
     fn test589_builder_tag_overrides() {
         let urn = TaggedUrnBuilder::new("cap")
-            .marker("convert").expect("convert marker fixture must be valid")
-            .tag("format", "jpg").expect("format fixture must be valid")
+            .marker("convert")
+            .expect("convert marker fixture must be valid")
+            .tag("format", "jpg")
+            .expect("format fixture must be valid")
             .build()
             .expect("builder fixture must serialize");
 
@@ -2951,7 +3133,8 @@ mod tests {
     #[test]
     fn test591_builder_single_tag() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("type", "utility").expect("single-tag fixture must be valid")
+            .tag("type", "utility")
+            .expect("single-tag fixture must be valid")
             .build()
             .expect("single-tag fixture must serialize");
 
@@ -2965,14 +3148,22 @@ mod tests {
     #[test]
     fn test592_builder_complex() {
         let urn = TaggedUrnBuilder::new("cap")
-            .tag("type", "media").expect("type fixture must be valid")
-            .marker("transcode").expect("transcode marker fixture must be valid")
-            .tag("target", "video").expect("target fixture must be valid")
-            .tag("format", "mp4").expect("format fixture must be valid")
-            .tag("codec", "h264").expect("codec fixture must be valid")
-            .tag("quality", "1080p").expect("quality fixture must be valid")
-            .tag("framerate", "30fps").expect("framerate fixture must be valid")
-            .tag("output", "binary").expect("output fixture must be valid")
+            .tag("type", "media")
+            .expect("type fixture must be valid")
+            .marker("transcode")
+            .expect("transcode marker fixture must be valid")
+            .tag("target", "video")
+            .expect("target fixture must be valid")
+            .tag("format", "mp4")
+            .expect("format fixture must be valid")
+            .tag("codec", "h264")
+            .expect("codec fixture must be valid")
+            .tag("quality", "1080p")
+            .expect("quality fixture must be valid")
+            .tag("framerate", "30fps")
+            .expect("framerate fixture must be valid")
+            .tag("output", "binary")
+            .expect("output fixture must be valid")
             .build()
             .expect("builder fixture must serialize");
 
@@ -2993,9 +3184,12 @@ mod tests {
     #[test]
     fn test593_builder_wildcards() {
         let urn = TaggedUrnBuilder::new("cap")
-            .marker("convert").expect("convert marker fixture must be valid")
-            .marker("ext").expect("ext marker fixture must be valid")
-            .marker("quality").expect("quality marker fixture must be valid")
+            .marker("convert")
+            .expect("convert marker fixture must be valid")
+            .marker("ext")
+            .expect("ext marker fixture must be valid")
+            .marker("quality")
+            .expect("quality marker fixture must be valid")
             .build()
             .expect("builder fixture must serialize");
 
@@ -3013,7 +3207,8 @@ mod tests {
     #[test]
     fn test594_builder_custom_prefix() {
         let urn = TaggedUrnBuilder::new("myapp")
-            .tag("key", "value").unwrap()
+            .tag("key", "value")
+            .unwrap()
             .build()
             .unwrap();
 
@@ -3026,23 +3221,30 @@ mod tests {
     fn test595_builder_matching_with_built_urn() {
         // Create a specific instance
         let specific_instance = TaggedUrnBuilder::new("cap")
-            .tag("op", "generate").unwrap()
-            .tag("target", "thumbnail").unwrap()
-            .tag("format", "pdf").unwrap()
+            .tag("op", "generate")
+            .unwrap()
+            .tag("target", "thumbnail")
+            .unwrap()
+            .tag("format", "pdf")
+            .unwrap()
             .build()
             .unwrap();
 
         // Create a more general pattern (fewer constraints)
         let general_pattern = TaggedUrnBuilder::new("cap")
-            .tag("op", "generate").unwrap()
+            .tag("op", "generate")
+            .unwrap()
             .build()
             .unwrap();
 
         // Create a pattern with wildcard (ext=* means must-have-any)
         let wildcard_pattern = TaggedUrnBuilder::new("cap")
-            .tag("op", "generate").unwrap()
-            .tag("target", "thumbnail").unwrap()
-            .tag("ext", "*").unwrap()
+            .tag("op", "generate")
+            .unwrap()
+            .tag("target", "thumbnail")
+            .unwrap()
+            .tag("ext", "*")
+            .unwrap()
             .build()
             .unwrap();
 
@@ -3054,12 +3256,14 @@ mod tests {
         assert!(!specific_instance.conforms_to(&wildcard_pattern).unwrap());
 
         // Check specificity
-        assert!(specific_instance.is_more_specific_than(&general_pattern).unwrap());
+        assert!(specific_instance
+            .is_more_specific_than(&general_pattern)
+            .unwrap());
 
         // Six-form ladder: exact = 4 points, * (must-have-any) = 2 points.
         assert_eq!(specific_instance.specificity(), 12); // 3 exact × 4 = 12
-        assert_eq!(general_pattern.specificity(), 4);    // 1 exact × 4 = 4
-        assert_eq!(wildcard_pattern.specificity(), 10);  // 2 exact × 4 + 1 * × 2 = 8 + 2 = 10
+        assert_eq!(general_pattern.specificity(), 4); // 1 exact × 4 = 4
+        assert_eq!(wildcard_pattern.specificity(), 10); // 2 exact × 4 + 1 * × 2 = 8 + 2 = 10
     }
 }
 
@@ -3069,10 +3273,14 @@ fn test0001_tag_order_normalization() {
     // Two URNs with same tags in different order should produce identical canonical string
     let urn1 = TaggedUrn::from_string("media:list;enc=utf-8").unwrap();
     let urn2 = TaggedUrn::from_string("media:enc=utf-8;list").unwrap();
-    
+
     eprintln!("urn1: {}", urn1.to_string());
     eprintln!("urn2: {}", urn2.to_string());
-    
-    assert_eq!(urn1.to_string(), urn2.to_string(), "Tag order should be normalized to canonical form");
+
+    assert_eq!(
+        urn1.to_string(),
+        urn2.to_string(),
+        "Tag order should be normalized to canonical form"
+    );
     assert_eq!(urn1, urn2, "URNs with same tags should be equal");
 }
